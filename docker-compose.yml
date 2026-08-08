@@ -1,0 +1,23 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ipdcharts-postgres
+    environment:
+      POSTGRES_USER: ipd
+      POSTGRES_PASSWORD: ipd_dev_password
+      POSTGRES_DB: ipdcharts
+      # OrbStack NAT makes connections appear from the VM gateway IP,
+      # which the default pg_hba.conf rejects. Explicitly allow all hosts.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "5432:5432"
+    volumes:
+      - ipdcharts_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipd -d ipdcharts"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  ipdcharts_pgdata:

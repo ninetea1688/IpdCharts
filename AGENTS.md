@@ -24,7 +24,7 @@
 
 | ชั้น | เทคโนโลยี |
 |---|---|
-| Frontend | React (Vite) + TypeScript + TailwindCSS + shadcn/ui |
+| Frontend | React (Vite) + TypeScript + TailwindCSS (components เขียนเอง) |
 | Backend | Node.js + Fastify + TypeScript |
 | Data | Prisma ORM + PostgreSQL |
 | Scan | QR/Barcode (กล้องมือถือ/สแกนเนอร์) |
@@ -46,7 +46,7 @@ IpdCharts/
 └── docker-compose.yml          # PostgreSQL (dev)
 ```
 
-> หมายเหตุ: ยังไม่มีการสร้าง `frontend/`, `backend/` — โครงสร้างข้างต้นเป็นเป้าหมาย
+> หมายเหตุ: `frontend/` + `backend/` สร้างแล้ว (v1) — โครงสร้างตรงตามข้างบน; UI components เขียนเอง ไม่ใช้ shadcn CLI (ดู decisions.md D-007)
 
 ## คำสั่งที่ใช้บ่อย
 

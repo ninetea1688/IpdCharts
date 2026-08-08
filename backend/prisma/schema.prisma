@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  BORROWER
+  DEPARTMENT_HEAD
+}
+
+enum RecordStatus {
+  AVAILABLE
+  BORROWED
+}
+
+enum BorrowStatus {
+  ACTIVE
+  RETURNED
+}
+
+model User {
+  id           Int         @id @default(autoincrement())
+  username     String      @unique
+  fullName     String
+  role         Role
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  borrowsAsBorrower Borrow[]  @relation("BorrowerBorrows")
+  borrowsAsReturner Borrow[]  @relation("ReturnerBorrows")
+  auditLogs         AuditLog[]
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users   User[]
+  borrows Borrow[]
+}
+
+model MedicalRecord {
+  id          Int          @id @default(autoincrement())
+  hn          String       @unique
+  patientName String
+  status      RecordStatus @default(AVAILABLE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  borrows Borrow[]
+}
+
+model Borrow {
+  id              Int          @id @default(autoincrement())
+  medicalRecordId Int
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id])
+  borrowerId      Int
+  borrower        User         @relation("BorrowerBorrows", fields: [borrowerId], references: [id])
+  departmentId    Int
+  department      Department   @relation(fields: [departmentId], references: [id])
+  reason          String
+  dueDate         DateTime
+  status          BorrowStatus @default(ACTIVE)
+  returnedAt      DateTime?
+  returnedById    Int?
+  returnedBy      User?        @relation("ReturnerBorrows", fields: [returnedById], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([medicalRecordId, status])
+  @@index([dueDate])
+  @@index([borrowerId])
+  @@index([status])
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  actorId   Int?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
