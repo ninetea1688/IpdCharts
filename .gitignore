@@ -45,3 +45,6 @@ prisma/migrations/dev/
 
 # ---- OS ----
 Thumbs.db
+
+# ---- TypeScript build info ----
+*.tsbuildinfo
