@@ -47,6 +47,28 @@ async function main() {
       role: Role.DEPARTMENT_HEAD, departmentId: surgery.id, email: "head-somchai@ipdcharts.local",
     },
   });
+  // หัวหน้าของ ICU — ใช้สาธิต escalation ที่แยกส่งตามหน่วยงาน
+  const headIcu = await prisma.user.create({
+    data: {
+      username: "head-suda", passwordHash, fullName: "แพทย์หญิงสุดา หัวหน้า ICU",
+      role: Role.DEPARTMENT_HEAD, departmentId: icu.id, email: "head-suda@ipdcharts.local",
+    },
+  });
+  // ผู้ยืมของกุมารเวช — ให้ทั้งสามหน่วยงานมีคนใช้งานจริง
+  const pediatricDoctor = await prisma.user.create({
+    data: {
+      username: "dr-pim", passwordHash, fullName: "แพทย์หญิงพิมพ์ กุมารแพทย์",
+      role: Role.BORROWER, departmentId: pediatric.id, email: "dr-pim@ipdcharts.local",
+    },
+  });
+  // บัญชีที่ถูกปิดใช้งานแล้ว — สาธิตสถานะ inactive ในหน้าจัดการผู้ใช้
+  await prisma.user.create({
+    data: {
+      username: "old-staff", passwordHash, fullName: "นายเก่า ลาออกแล้ว",
+      role: Role.BORROWER, departmentId: surgery.id, email: "old-staff@ipdcharts.local",
+      active: false,
+    },
+  });
 
   const patients = [
     "สมชาย ใจดี", "ประภาพร ศรีสุข", "อนุชา วงศ์เจริญ", "รัตนา คงมั่น",
@@ -131,6 +153,75 @@ async function main() {
   await prisma.medicalRecord.update({
     where: { id: records[4]!.id },
     data: { status: "DAMAGED" },
+  });
+
+  // ---- HN 0000000009: คำขอที่ถูกปฏิเสธ — แฟ้มยังว่างอยู่ ----
+  await prisma.borrow.create({
+    data: {
+      medicalRecordId: records[8]!.id,
+      borrowerId: pediatricDoctor.id,
+      departmentId: pediatric.id,
+      reason: "ขอยืมข้ามเขตเพื่อทำวิจัย",
+      dueDate: new Date(now + 7 * DAY),
+      requiresApproval: true,
+      status: "REJECTED",
+      rejectedReason: "ยังไม่มีหนังสืออนุมัติจากคณะกรรมการจริยธรรมการวิจัย",
+      approvedById: headIcu.id,
+      approvedAt: new Date(now - 1 * DAY),
+    },
+  });
+
+  // ---- HN 0000000010: แฟ้มสูญหาย ยังตามอยู่ (borrow ค้าง + incident เปิด) ----
+  const lostBorrow = await prisma.borrow.create({
+    data: {
+      medicalRecordId: records[9]!.id,
+      borrowerId: pediatricDoctor.id,
+      departmentId: pediatric.id,
+      reason: "ทบทวนเวชระเบียนก่อนส่งต่อ",
+      dueDate: new Date(now - 12 * DAY),
+    },
+  });
+  await prisma.incident.create({
+    data: {
+      medicalRecordId: records[9]!.id,
+      borrowId: lostBorrow.id,
+      type: "LOST",
+      description: "ค้นหาที่หอผู้ป่วยและห้องตรวจแล้วไม่พบ อยู่ระหว่างประสานหน่วยงานที่เกี่ยวข้อง",
+      reportedById: admin.id,
+    },
+  });
+  await prisma.medicalRecord.update({
+    where: { id: records[9]!.id },
+    data: { status: "LOST" },
+  });
+
+  // ---- HN 0000000011: เคยชำรุด ซ่อมเสร็จและปิดเรื่องแล้ว — แฟ้มกลับมาใช้ได้ ----
+  await prisma.incident.create({
+    data: {
+      medicalRecordId: records[10]!.id,
+      type: "DAMAGED",
+      description: "สันแฟ้มหลุด เอกสารบางส่วนหลวม",
+      reportedById: admin.id,
+      status: "RESOLVED",
+      resolvedById: admin.id,
+      resolvedAt: new Date(now - 3 * DAY),
+      resolutionNote: "เปลี่ยนปกแฟ้มและจัดเรียงเอกสารใหม่เรียบร้อย",
+    },
+  });
+
+  // ---- HN 0000000012: เกินกำหนดนานเกินเกณฑ์ escalation (14 วัน) ----
+  await prisma.borrow.create({
+    data: {
+      medicalRecordId: records[11]!.id,
+      borrowerId: doctor.id,
+      departmentId: icu.id,
+      reason: "ใช้ประกอบการทำ case conference",
+      dueDate: new Date(now - 25 * DAY),
+    },
+  });
+  await prisma.medicalRecord.update({
+    where: { id: records[11]!.id },
+    data: { status: "BORROWED" },
   });
 
   await prisma.auditLog.createMany({
