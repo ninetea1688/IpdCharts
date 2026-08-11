@@ -1,0 +1,81 @@
+# Production deploy หลัง Kong gateway ที่มีอยู่แล้ว (TLS ตัดที่ Cloudflare edge)
+#
+# ต่างจาก docker-compose.yml (dev) สองเรื่องสำคัญ:
+#   1) ไม่ publish port ใดๆ ออกโฮสต์ — โฮสต์ prod ใช้ 80/3000/5432/8080 ไปหมดแล้ว
+#      การ publish จะชนกับระบบอื่นที่รันอยู่ Kong เรียกถึง container ผ่านชื่อบน
+#      network ร่วมแทน
+#   2) frontend ต่อกับ kong-docker_default เพิ่ม เพื่อให้ Kong route มาหาได้
+#      ส่วน backend กับ db อยู่บน network ภายในเท่านั้น ไม่เปิดออกไปไหน
+#
+# ใช้:  ops/deploy.sh   (ดู README หัวข้อ Deploy)
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ipdcharts-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ipd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ต้องตั้ง POSTGRES_PASSWORD ใน .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ipdcharts}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      TZ: Asia/Bangkok
+    volumes:
+      - ipdcharts_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ipd} -d ${POSTGRES_DB:-ipdcharts}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - default
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ipdcharts-backend:prod
+    container_name: ipdcharts-backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ipd}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ipdcharts}?schema=public
+      PORT: 3000
+      NODE_ENV: production
+      TZ: Asia/Bangkok
+      JWT_SECRET: ${JWT_SECRET:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-IpdCharts <no-reply@ipdcharts.local>}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+      AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1 minute}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - default
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: ipdcharts-frontend:prod
+    container_name: ipdcharts-frontend
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - default
+      - kong-docker_default
+
+volumes:
+  ipdcharts_pgdata:
+
+networks:
+  # gateway ที่มีอยู่แล้วบนโฮสต์ — สร้างโดย ~/kong-docker
+  kong-docker_default:
+    external: true

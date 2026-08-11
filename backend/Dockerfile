@@ -37,8 +37,10 @@ ENV PORT=3000
 
 EXPOSE 3000
 
+# ต้องใช้ 127.0.0.1 ไม่ใช่ localhost — ในอิมเมจนี้ localhost resolve เป็น ::1 (IPv6)
+# แต่ Fastify listen ที่ 0.0.0.0 ซึ่งเป็น IPv4 เท่านั้น healthcheck จึงถูกปฏิเสธตลอด
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/v1/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/api/v1/health || exit 1
 
 # apply migration ก่อนเสมอ — DB ใหม่จะได้มีตารางครบก่อน API รับ request
 CMD ["sh", "-c", "bunx prisma migrate deploy --schema backend/prisma/schema.prisma && bun run backend/dist/server.js"]

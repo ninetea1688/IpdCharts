@@ -219,6 +219,51 @@ bun run dev
 
 ## Deploy (Production)
 
+ระบบจริงรันที่ **https://mdr-tracking.officesoft.shop** บนโฮสต์ที่ใช้ร่วมกับโปรเจคอื่น
+โดยมี Kong เป็น gateway และ Cloudflare ตัด TLS ที่ edge
+
+```bash
+ops/deploy.sh
+```
+
+สคริปต์จะ rsync ซอร์สขึ้นโฮสต์ → build image → ยก `db`+`backend` (backend รัน
+`prisma migrate deploy` ตอน start) → ยก `frontend` → เช็ค health
+ถ้า build ล้ม ของเดิมยังเสิร์ฟอยู่ไม่ถูกแตะ
+
+Override ได้ด้วย `IPD_HOST`, `IPD_DIR`, `IPD_HEALTH_URL`
+
+### ข้อควรรู้ของ prod ตัวนี้
+
+- ใช้ `docker-compose.kong.yml` ไม่ใช่ `docker-compose.yml`
+  — **ไม่ publish port ใดๆ** เพราะโฮสต์ใช้ 80/3000/5432/8080 ไปหมดแล้ว
+  Kong เรียกถึง `ipdcharts-frontend` ผ่าน network `kong-docker_default` แทน
+- `.env` อยู่บนโฮสต์ที่ `~/mdr-tracking/.env` (โหมด 600) และ **ไม่ถูก rsync ทับ**
+  ถือเป็น source of truth ของ secret
+- สร้างบัญชีผู้ดูแลคนแรกด้วย `db:bootstrap` ไม่ใช่ `db:seed`
+  (`db:seed` ลบข้อมูลทั้งหมดก่อน ห้ามรันบน prod)
+
+  ```bash
+  docker compose -f docker-compose.kong.yml exec \
+    -e BOOTSTRAP_ADMIN_PASSWORD='<รหัสผ่าน>' backend bun run prisma/bootstrap.ts
+  ```
+
+  สคริปต์จะไม่ทำอะไรถ้ามีผู้ใช้อยู่แล้ว จึงรันซ้ำได้อย่างปลอดภัย
+
+### ครั้งแรกบนโฮสต์ใหม่: ลงทะเบียน route ที่ Kong
+
+```bash
+curl -X POST http://127.0.0.1:8001/services \
+  --data name=mdr-tracking --data url=http://ipdcharts-frontend:80
+
+curl -X POST http://127.0.0.1:8001/services/mdr-tracking/routes \
+  --data name=mdr-tracking-route \
+  --data 'hosts[]=mdr-tracking.officesoft.shop' \
+  --data 'protocols[]=http' --data 'protocols[]=https' \
+  --data preserve_host=true
+```
+
+### รันเองบนเครื่องอื่น (ไม่มี Kong)
+
 ```bash
 cp .env.example .env
 # ตั้ง POSTGRES_PASSWORD และ JWT_SECRET เป็นค่าจริง (JWT_SECRET ต้อง >= 32 ตัวอักษร)
