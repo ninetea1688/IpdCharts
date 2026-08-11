@@ -29,7 +29,9 @@
 - JWT (HS256) อายุ 12 ชั่วโมง ตรวจสอบทุก request และโหลดผู้ใช้จากฐานข้อมูลใหม่เสมอ
   (ปิดบัญชี/ลบผู้ใช้แล้ว token เดิมใช้ไม่ได้ทันที)
 - ข้อความตอบกลับตอนล็อกอินผิดเหมือนกันทุกกรณี เพื่อกัน user enumeration
-- จำกัดจำนวนครั้งการล็อกอินต่อ IP (ปริยาย 10 ครั้ง/นาที) เพื่อกัน brute-force
+- จำกัดจำนวนครั้งการล็อกอิน (ปริยาย 10 ครั้ง/นาที) นับแยกตาม **IP + ชื่อผู้ใช้**
+  ไม่ใช่ IP ล้วน เพราะโรงพยาบาลออกเน็ตผ่าน NAT ไม่กี่ IP — ถ้านับต่อ IP
+  ช่วงเปลี่ยนเวรที่คนล็อกอินพร้อมกันหลายคนจะโดนบล็อกทั้งที่ไม่ได้ทำอะไรผิด
 - เปิดแอปแล้วตรวจ token กับเซิร์ฟเวอร์ทุกครั้ง — token หมดอายุจะเด้งไปหน้าล็อกอินทันที ไม่ค้างสถานะ
 - 3 บทบาท:
 
@@ -100,6 +102,7 @@
 
   `LOGIN`, `BORROW`, `BORROW_REQUEST`, `BORROW_APPROVE`, `BORROW_REJECT`, `RETURN`,
   `INCIDENT_REPORT`, `INCIDENT_RESOLVE`, `USER_CREATE`, `USER_UPDATE`, `USER_DEACTIVATE`,
+  `DEPARTMENT_CREATE`, `DEPARTMENT_UPDATE`, `DEPARTMENT_DELETE`,
   `RECORD_SEARCH`, `RECORD_VIEW`, `OVERDUE_NOTIFICATION`, `OVERDUE_ESCALATION`
   </details>
 
@@ -110,6 +113,12 @@
 - ปิดใช้งานแล้ว token เดิมใช้ไม่ได้ทันที และล็อกอินใหม่ไม่ได้
 - กันปิดบัญชีตัวเอง และกันปิดบัญชีที่ยังมีแฟ้มค้างคืน
 - รหัสผ่านไม่เคยถูกบันทึกลง audit log — เก็บแค่ว่ามีการเปลี่ยนหรือไม่
+
+### 🏢 จัดการหน่วยงาน
+
+- เพิ่ม / เปลี่ยนชื่อ / ลบหน่วยงาน พร้อมกันชื่อซ้ำ
+- **ลบได้เฉพาะหน่วยงานที่ไม่มีอะไรอ้างถึง** — ถ้ายังมีผู้ใช้หรือประวัติการยืมอยู่ ระบบจะปฏิเสธ
+  พร้อมบอกจำนวนที่อ้างอยู่ ประวัติจึงไม่ขาดหาย (ปุ่มลบใน UI ถูกปิดไว้ล่วงหน้าด้วย)
 
 ### 📄 รายงาน Excel
 
@@ -273,7 +282,10 @@ docker compose up -d --build
 | `POST` | `/users` | ADMIN | เพิ่มผู้ใช้งาน |
 | `PATCH` | `/users/:id` | ADMIN | แก้ไข / รีเซ็ตรหัสผ่าน / เปิด-ปิดใช้งาน |
 | `DELETE` | `/users/:id` | ADMIN | ปิดใช้งานบัญชี (ไม่ลบข้อมูลจริง) |
-| `GET` | `/departments` | ทุก role | รายชื่อหน่วยงาน + จำนวนผู้ใช้ |
+| `GET` | `/departments` | ทุก role | รายชื่อหน่วยงาน + จำนวนผู้ใช้/ประวัติการยืม |
+| `POST` | `/departments` | ADMIN | เพิ่มหน่วยงาน |
+| `PATCH` | `/departments/:id` | ADMIN | เปลี่ยนชื่อหน่วยงาน |
+| `DELETE` | `/departments/:id` | ADMIN | ลบหน่วยงาน (เฉพาะที่ไม่มีอะไรอ้างถึง) |
 | `GET` | `/labels` | ADMIN | PNG barcode/QR (`?hn=&type=barcode\|qrcode`) |
 | `POST` | `/labels/batch` | ADMIN | ขอ label หลายแฟ้ม |
 | `GET` | `/reports/borrows` | ADMIN | ดาวน์โหลดรายงาน `.xlsx` |
@@ -290,8 +302,9 @@ docker compose up -d --build
 `RECORD_NOT_FOUND`, `RECORD_NOT_AVAILABLE`, `RECORD_UNUSABLE`, `BORROW_NOT_FOUND`, `ALREADY_RETURNED`,
 `WRONG_RETURNER`, `BORROWER_NOT_FOUND`, `BORROWER_NO_DEPARTMENT`, `INVALID_DUE_DATE`,
 `NOT_PENDING_APPROVAL`, `NOT_APPROVED`, `APPROVER_WRONG_DEPARTMENT`, `INCIDENT_NOT_FOUND`,
-`INCIDENT_ALREADY_RESOLVED`, `USERNAME_TAKEN`, `DEPARTMENT_NOT_FOUND`, `CANNOT_DELETE_SELF`,
-`USER_HAS_ACTIVE_BORROWS`, `USER_NOT_FOUND`, `NOT_FOUND`, `INTERNAL_ERROR`
+`INCIDENT_ALREADY_RESOLVED`, `USERNAME_TAKEN`, `DEPARTMENT_NOT_FOUND`, `DEPARTMENT_NAME_TAKEN`,
+`DEPARTMENT_IN_USE`, `CANNOT_DELETE_SELF`, `USER_HAS_ACTIVE_BORROWS`, `USER_NOT_FOUND`,
+`NOT_FOUND`, `INTERNAL_ERROR`
 
 ---
 
@@ -308,7 +321,7 @@ docker compose up -d --build
 | Time zone แสดงผล | `Asia/Bangkok` (เก็บใน DB เป็น UTC) | |
 | รูปแบบ HN | ตัวเลข 8–10 หลัก | `borrowBodySchema` |
 | ความยาวรหัสผ่านขั้นต่ำ | 8 ตัวอักษร | `createBodySchema` |
-| ลิมิตล็อกอินต่อ IP | 10 ครั้ง/นาที | `AUTH_RATE_LIMIT_MAX` |
+| ลิมิตล็อกอิน (ต่อ IP + ชื่อผู้ใช้) | 10 ครั้ง/นาที | `AUTH_RATE_LIMIT_MAX` |
 | แฟ้มที่ยืมได้ | เฉพาะสถานะ `AVAILABLE` และไม่มีคำขอค้างอยู่ | `isRecordBorrowable` |
 
 ---
@@ -325,10 +338,25 @@ Integration test ยิงผ่าน `app.inject()` ไปยัง Fastify �
 overdue scanner, audit log การอ่าน และ rate limit
 ทุกเทสต์ผ่าน **auth/RBAC จริง** — ออก JWT ผ่านเส้นทางเดียวกับ production ไม่มีการ bypass
 
+### E2E (Playwright)
+
+E2E ขับเบราว์เซอร์จริงครอบทุกหน้า: ล็อกอิน/สิทธิ์, ยืม-คืน, อนุมัติคำขอ, แฟ้มชำรุด/สูญหาย,
+รายงาน Excel, พิมพ์ label และจัดการผู้ใช้/หน่วยงาน
+
 ```bash
-# E2E (ต้องเปิด backend + frontend ไว้ก่อน)
-bun run --cwd backend test:e2e
+# 1) เปิดระบบทั้งชุด — ปิด rate limit ไว้เพราะเทสต์ล็อกอินซ้ำหลายรอบด้วยบัญชีเดิม
+JWT_SECRET=<secret ยาว 32 ตัวอักษรขึ้นไป> AUTH_RATE_LIMIT_MAX=0 docker compose up -d --build
+
+# 2) รันเทสต์ยิงใส่ frontend container (nginx พอร์ต 80)
+E2E_BASE_URL=http://localhost bun run --cwd backend test:e2e
 ```
+
+> `test:e2e` จะรัน `db:seed` ให้อัตโนมัติก่อนเสมอ เพราะเทสต์อ้างอิงข้อมูลตัวอย่างที่แน่นอน
+> (เช่น HN 0000000004 = คำขอที่รออนุมัติ) — **แปลว่าคำสั่งนี้ลบข้อมูลในฐานที่ชี้อยู่ทั้งหมด
+> อย่ารันใส่ฐานข้อมูลจริง**
+
+ถ้าจะยิงใส่ dev server แทน ให้ข้าม `E2E_BASE_URL` (ค่าปริยายคือ `http://localhost:5173`)
+แล้วเปิด `bun run dev` ไว้ก่อน
 
 ---
 
@@ -360,6 +388,9 @@ IpdCharts/
                                 # RecordDetail, Incidents, Reports, Admin
 ```
 
+`backend/src/routes/` แยกไฟล์ตามโดเมน: `health`, `auth`, `records`, `borrows`, `incidents`,
+`users`, `departments`, `stats`, `labels`, `reports`
+
 ---
 
 ## สิ่งที่ยังไม่ได้ทำ
@@ -370,6 +401,4 @@ IpdCharts/
   และยังไม่มี webhook สำหรับเก็บ `lineUserId` ของผู้ใช้ (ต้องกรอกมือไปก่อน)
 - **ระยะเวลายืมตามประเภทคำขอ** (FR-02) — ตอนนี้ผู้บันทึกกำหนด `dueDate` เอง
   ยังไม่มีนโยบายสำเร็จรูป "ปกติ 3 วัน / ด่วน 1 วันทำการ" ให้เลือก (รอยืนยันนโยบายจริงตาม PRD ข้อ 12.3)
-- **จัดการหน่วยงาน** — ดูรายชื่อได้ แต่เพิ่ม/แก้ไข/ลบหน่วยงานต้องทำผ่าน `prisma studio`
 - **Backup อัตโนมัติ** ของฐานข้อมูล (NFR ด้าน Availability)
-- **E2E test** ยังครอบเฉพาะ flow เดิม ยังไม่ครอบหน้าอนุมัติ / เหตุการณ์ / รายงาน

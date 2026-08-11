@@ -45,6 +45,13 @@ export const Errors = {
   // ---- จัดการผู้ใช้งาน (FR-11) ----
   usernameTaken: () => new AppError(409, "USERNAME_TAKEN", "ชื่อผู้ใช้นี้ถูกใช้งานแล้ว"),
   departmentNotFound: () => new AppError(404, "DEPARTMENT_NOT_FOUND", "ไม่พบหน่วยงานที่ระบุ"),
+  departmentNameTaken: () => new AppError(409, "DEPARTMENT_NAME_TAKEN", "มีหน่วยงานชื่อนี้อยู่แล้ว"),
+  departmentInUse: (users: number, borrows: number) =>
+    new AppError(
+      409,
+      "DEPARTMENT_IN_USE",
+      `ลบไม่ได้ — หน่วยงานนี้มีผู้ใช้งาน ${users} คน และประวัติการยืม ${borrows} รายการอ้างอิงอยู่`,
+    ),
   cannotDeleteSelf: () => new AppError(400, "CANNOT_DELETE_SELF", "ไม่สามารถปิดใช้งานบัญชีของตนเองได้"),
   userHasActiveBorrows: () =>
     new AppError(409, "USER_HAS_ACTIVE_BORROWS", "ผู้ใช้นี้ยังมีแฟ้มค้างคืน กรุณาให้คืนแฟ้มก่อน"),

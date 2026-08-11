@@ -564,6 +564,160 @@ describe("FR-11 จัดการผู้ใช้งาน", () => {
 });
 
 // ---------------------------------------------------------------------------
+// จัดการหน่วยงาน
+// ---------------------------------------------------------------------------
+
+describe("จัดการหน่วยงาน", () => {
+  it("เพิ่มหน่วยงาน → 201 และลบได้ทันทีเพราะยังไม่มีใครอ้างถึง", async () => {
+    const { staffHeaders } = await seedBase();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/departments",
+      headers: staffHeaders,
+      payload: { name: "อายุรกรรม" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().department.name).toBe("อายุรกรรม");
+    expect(res.json().department.userCount).toBe(0);
+    expect(res.json().department.deletable).toBe(true);
+  });
+
+  it("ชื่อหน่วยงานซ้ำ → 409", async () => {
+    const { dept, staffHeaders } = await seedBase();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/departments",
+      headers: staffHeaders,
+      payload: { name: dept.name },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("DEPARTMENT_NAME_TAKEN");
+  });
+
+  it("ชื่อสั้นเกินไป → 400", async () => {
+    const { staffHeaders } = await seedBase();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/departments",
+      headers: staffHeaders,
+      payload: { name: "ก" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.message).toBe("ชื่อหน่วยงานต้องยาวอย่างน้อย 2 ตัวอักษร");
+  });
+
+  it("เปลี่ยนชื่อหน่วยงานได้ และชื่อใหม่สะท้อนไปที่ผู้ใช้", async () => {
+    const { dept, borrower, staffHeaders } = await seedBase();
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/departments/${dept.id}`,
+      headers: staffHeaders,
+      payload: { name: "ศัลยกรรมทั่วไป" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().department.name).toBe("ศัลยกรรมทั่วไป");
+
+    const users = await app.inject({ method: "GET", url: "/api/v1/users", headers: staffHeaders });
+    const found = users.json().users.find((u: { id: number }) => u.id === borrower.id);
+    expect(found.department).toBe("ศัลยกรรมทั่วไป");
+  });
+
+  it("เปลี่ยนชื่อชนกับหน่วยงานอื่น → 409", async () => {
+    const { dept, staffHeaders } = await seedBase();
+    const other = await prisma.department.create({ data: { name: "กุมารเวช" } });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/departments/${other.id}`,
+      headers: staffHeaders,
+      payload: { name: dept.name },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("DEPARTMENT_NAME_TAKEN");
+  });
+
+  it("ลบหน่วยงานที่ยังมีผู้ใช้อยู่ไม่ได้ → 409 พร้อมบอกจำนวนที่อ้างอยู่", async () => {
+    const { dept, staffHeaders } = await seedBase();
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/departments/${dept.id}`,
+      headers: staffHeaders,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("DEPARTMENT_IN_USE");
+    expect(res.json().error.message).toContain("1 คน");
+  });
+
+  it("ลบหน่วยงานที่มีประวัติการยืมอ้างอยู่ไม่ได้ แม้ย้ายผู้ใช้ออกหมดแล้ว", async () => {
+    const { dept, record, borrower, staffHeaders } = await seedBase();
+    await createBorrow(staffHeaders, {
+      hn: record.hn,
+      borrowerId: borrower.id,
+      reason: "ตรวจสอบประวัติ",
+      dueDate: futureDue(),
+    });
+    // ย้ายผู้ใช้ออกจากหน่วยงาน — เหลือแค่ประวัติการยืมที่ยังอ้างถึง
+    await prisma.user.update({ where: { id: borrower.id }, data: { departmentId: null } });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/departments/${dept.id}`,
+      headers: staffHeaders,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toContain("1 รายการ");
+  });
+
+  it("ลบหน่วยงานที่ไม่มีใครอ้างถึง → 200", async () => {
+    const { staffHeaders } = await seedBase();
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/v1/departments",
+      headers: staffHeaders,
+      payload: { name: "หน่วยงานชั่วคราว" },
+    });
+    const id = created.json().department.id;
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/departments/${id}`,
+      headers: staffHeaders,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().deleted.name).toBe("หน่วยงานชั่วคราว");
+    expect(await prisma.department.count({ where: { id } })).toBe(0);
+  });
+
+  it("ลบหน่วยงานที่ไม่มีอยู่ → 404", async () => {
+    const { staffHeaders } = await seedBase();
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/api/v1/departments/999999",
+      headers: staffHeaders,
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("DEPARTMENT_NOT_FOUND");
+  });
+
+  it("ผู้ยืมทั่วไปจัดการหน่วยงานไม่ได้ → 403", async () => {
+    const { borrower } = await seedBase();
+    const headers = await authHeaders(borrower);
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/api/v1/departments",
+      headers,
+      payload: { name: "หน่วยงานใหม่" },
+    });
+    expect(create.statusCode).toBe(403);
+
+    const remove = await app.inject({ method: "DELETE", url: "/api/v1/departments/1", headers });
+    expect(remove.statusCode).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // FR-07 — Overdue scanner
 // ---------------------------------------------------------------------------
 
@@ -687,6 +841,15 @@ describe("Hardening", () => {
       expect(blocked.statusCode).toBe(429);
       expect(blocked.json().error.code).toBe("TOO_MANY_REQUESTS");
       expect(blocked.json().error.message).toContain("บ่อยเกินไป");
+
+      // ลิมิตนับแยกตามชื่อผู้ใช้ — บัญชีอื่นจาก IP เดียวกันต้องยังล็อกอินได้
+      // (โรงพยาบาลออกเน็ตผ่าน NAT ไม่กี่ IP ถ้านับต่อ IP ล้วนจะล็อกคนทั้งตึกออก)
+      const otherAccount = await limited.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { username: "test-borrower", password: "password123" },
+      });
+      expect(otherAccount.statusCode).toBe(200);
     } finally {
       await limited.close();
       process.env.AUTH_RATE_LIMIT_MAX = "0";

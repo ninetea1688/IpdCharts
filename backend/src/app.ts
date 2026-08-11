@@ -10,6 +10,7 @@ import { recordRoutes } from "./routes/records.js";
 import { borrowRoutes } from "./routes/borrows.js";
 import { incidentRoutes } from "./routes/incidents.js";
 import { userRoutes } from "./routes/users.js";
+import { departmentRoutes } from "./routes/departments.js";
 import { statsRoutes } from "./routes/stats.js";
 import { labelRoutes } from "./routes/labels.js";
 import { reportRoutes } from "./routes/reports.js";
@@ -32,6 +33,22 @@ function corsOrigin(): string[] | boolean {
   return process.env.NODE_ENV === "production" ? false : true;
 }
 
+/**
+ * นับลิมิตล็อกอินแยกตาม "IP + ชื่อผู้ใช้" ไม่ใช่ IP อย่างเดียว
+ *
+ * โรงพยาบาลออกอินเทอร์เน็ตผ่าน NAT ไม่กี่ IP — ถ้านับต่อ IP ล้วน
+ * ช่วงเปลี่ยนเวรที่เจ้าหน้าที่ล็อกอินพร้อมกันหลายคนจะโดนบล็อกทั้งที่ไม่ได้ทำอะไรผิด
+ * การผูกกับชื่อผู้ใช้ทำให้ยังกันการเดารหัสผ่านรายบัญชีได้ โดยไม่ล็อกคนทั้งตึกออกจากระบบ
+ */
+function loginRateLimitKey(request: { ip: string; body?: unknown }): string {
+  const body = request.body;
+  const username =
+    typeof body === "object" && body !== null && "username" in body && typeof body.username === "string"
+      ? body.username.trim().toLowerCase()
+      : "";
+  return `${request.ip}:${username}`;
+}
+
 /** สร้าง Fastify app — แยกจาก server.ts เพื่อให้ test inject ได้โดยไม่ต้อง listen */
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: false, trustProxy: true });
@@ -40,7 +57,9 @@ export function buildApp(): FastifyInstance {
 
   // ลงทะเบียนแบบไม่ global — เปิดใช้เฉพาะ route ที่ประกาศ config.rateLimit (ดู routes/auth.ts)
   // การจัดรูปแบบ response อยู่ที่ error handler ด้านล่าง จะได้มีที่เดียว
-  app.register(rateLimit, { global: false });
+  // hook: preHandler จำเป็น — ปริยายคือ onRequest ซึ่ง body ยังไม่ถูก parse
+  // ทำให้ keyGenerator อ่าน username ไม่ได้และตกไปนับต่อ IP ล้วน
+  app.register(rateLimit, { global: false, hook: "preHandler", keyGenerator: loginRateLimitKey });
 
   app.setErrorHandler((err, _request, reply) => {
     if (err instanceof AppError) {
@@ -76,6 +95,7 @@ export function buildApp(): FastifyInstance {
     api.register(borrowRoutes);
     api.register(incidentRoutes);
     api.register(userRoutes);
+    api.register(departmentRoutes);
     api.register(statsRoutes);
     api.register(labelRoutes);
     api.register(reportRoutes);

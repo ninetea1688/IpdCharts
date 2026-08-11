@@ -18,6 +18,9 @@ export interface Department {
   id: number;
   name: string;
   userCount: number;
+  borrowCount: number;
+  /** ลบได้ก็ต่อเมื่อไม่มีผู้ใช้และไม่มีประวัติการยืมอ้างถึง */
+  deletable: boolean;
 }
 
 export type RecordStatus = "AVAILABLE" | "BORROWED" | "DAMAGED" | "LOST";
@@ -272,6 +275,26 @@ export const api = {
 
   departments(): Promise<Department[]> {
     return request<{ departments: Department[] }>("/departments").then((r) => r.departments);
+  },
+
+  createDepartment(name: string): Promise<Department> {
+    return request<{ department: Department }>("/departments", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }).then((r) => r.department);
+  },
+
+  updateDepartment(id: number, name: string): Promise<Department> {
+    return request<{ department: Department }>(`/departments/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }).then((r) => r.department);
+  },
+
+  deleteDepartment(id: number): Promise<{ id: number; name: string }> {
+    return request<{ deleted: { id: number; name: string } }>(`/departments/${id}`, {
+      method: "DELETE",
+    }).then((r) => r.deleted);
   },
 
   records(params?: { search?: string; status?: RecordStatus }): Promise<RecordListItem[]> {

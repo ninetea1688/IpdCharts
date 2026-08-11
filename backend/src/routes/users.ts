@@ -212,15 +212,4 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ user: serializeUser(user) });
   });
-
-  // หน่วยงาน — ใช้เติม dropdown ตอนสร้าง/แก้ไขผู้ใช้
-  app.get("/departments", { preHandler: [authenticate] }, async (_request, reply) => {
-    const departments = await prisma.department.findMany({
-      orderBy: { name: "asc" },
-      include: { _count: { select: { users: true } } },
-    });
-    return reply.send({
-      departments: departments.map((d) => ({ id: d.id, name: d.name, userCount: d._count.users })),
-    });
-  });
 }

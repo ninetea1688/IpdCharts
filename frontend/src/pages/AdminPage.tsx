@@ -31,6 +31,10 @@ interface FormState {
   email: string;
 }
 
+type DepartmentForm =
+  | { mode: "create"; name: string }
+  | { mode: "edit"; id: number; name: string };
+
 const emptyForm: FormState = {
   username: "",
   password: "",
@@ -53,6 +57,11 @@ export default function AdminPage() {
   const [mode, setMode] = useState<"none" | "create" | { editing: User }>("none");
   const [form, setForm] = useState<FormState>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  // ---- จัดการหน่วยงาน ----
+  const [deptForm, setDeptForm] = useState<DepartmentForm | null>(null);
+  const [deptSubmitting, setDeptSubmitting] = useState(false);
+  const [deptError, setDeptError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,6 +137,42 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : "บันทึกไม่สำเร็จ");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function submitDepartment(e: FormEvent) {
+    e.preventDefault();
+    if (!deptForm) return;
+    setDeptSubmitting(true);
+    setDeptError(null);
+    setSuccess(null);
+    try {
+      const name = deptForm.name.trim();
+      if (deptForm.mode === "create") {
+        await api.createDepartment(name);
+        setSuccess(`เพิ่มหน่วยงาน ${name} เรียบร้อย`);
+      } else {
+        await api.updateDepartment(deptForm.id, name);
+        setSuccess(`เปลี่ยนชื่อหน่วยงานเป็น ${name} เรียบร้อย`);
+      }
+      setDeptForm(null);
+      await load();
+    } catch (err) {
+      setDeptError(err instanceof Error ? err.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setDeptSubmitting(false);
+    }
+  }
+
+  async function removeDepartment(d: Department) {
+    setDeptError(null);
+    setSuccess(null);
+    try {
+      await api.deleteDepartment(d.id);
+      setSuccess(`ลบหน่วยงาน ${d.name} เรียบร้อย`);
+      await load();
+    } catch (err) {
+      setDeptError(err instanceof Error ? err.message : "ลบไม่สำเร็จ");
     }
   }
 
@@ -353,22 +398,91 @@ export default function AdminPage() {
         </Card>
 
         <Card className="p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <Building2 className="size-4 text-teal-700" />
-            หน่วยงาน
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Building2 className="size-4 text-teal-700" />
+              หน่วยงาน ({departments.length})
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setDeptForm({ mode: "create", name: "" });
+                setDeptError(null);
+              }}
+            >
+              <Plus className="size-4" />
+              เพิ่ม
+            </Button>
           </div>
-          <dl className="mt-3 space-y-1 text-sm">
-            {departments.length === 0 ? (
-              <div className="text-slate-500">ยังไม่มีหน่วยงาน</div>
-            ) : (
-              departments.map((d) => (
-                <div key={d.id} className="flex justify-between">
-                  <dt className="text-slate-500">{d.name}</dt>
-                  <dd className="font-medium tabular-nums">{d.userCount} คน</dd>
-                </div>
-              ))
-            )}
-          </dl>
+
+          {deptError ? <ErrorBanner message={deptError} /> : null}
+
+          {deptForm ? (
+            <form className="mb-3 space-y-2" onSubmit={submitDepartment}>
+              <Field label={deptForm.mode === "create" ? "ชื่อหน่วยงานใหม่" : "แก้ชื่อหน่วยงาน"}>
+                <Input
+                  value={deptForm.name}
+                  onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })}
+                  placeholder="เช่น อายุรกรรม"
+                  maxLength={100}
+                  required
+                  autoFocus
+                />
+              </Field>
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" disabled={deptSubmitting || deptForm.name.trim().length < 2}>
+                  {deptSubmitting ? "กำลังบันทึก..." : "บันทึก"}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setDeptForm(null)}>
+                  ยกเลิก
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
+          {departments.length === 0 ? (
+            <div className="text-sm text-slate-500">ยังไม่มีหน่วยงาน</div>
+          ) : (
+            <ul className="divide-y divide-slate-100 text-sm">
+              {departments.map((d) => (
+                <li key={d.id} className="flex items-center justify-between gap-2 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-slate-900">{d.name}</div>
+                    <div className="text-xs text-slate-500">
+                      {d.userCount} คน · ประวัติการยืม {d.borrowCount} รายการ
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setDeptForm({ mode: "edit", id: d.id, name: d.name });
+                        setDeptError(null);
+                      }}
+                    >
+                      แก้ไข
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={!d.deletable}
+                      title={
+                        d.deletable
+                          ? "ลบหน่วยงาน"
+                          : "ลบไม่ได้ — ยังมีผู้ใช้หรือประวัติการยืมอ้างถึงหน่วยงานนี้"
+                      }
+                      onClick={() => void removeDepartment(d)}
+                    >
+                      ลบ
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
           <div className="mt-3 border-t border-slate-100 pt-3">
             <Link to="/reports" className="text-sm text-teal-700 hover:underline">
               ไปที่หน้ารายงานและป้ายแฟ้ม
