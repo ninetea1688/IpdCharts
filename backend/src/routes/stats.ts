@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { isOverdue } from "../lib/domain.js";
+import { authenticate } from "../lib/auth.js";
 
 /** เริ่มต้นวันนี้ตามโซน Asia/Bangkok (UTC+7) */
 function startOfTodayBangkok(now: Date = new Date()): Date {
@@ -10,7 +11,7 @@ function startOfTodayBangkok(now: Date = new Date()): Date {
 }
 
 export async function statsRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/stats", async (_request, reply) => {
+  app.get("/stats", { preHandler: [authenticate] }, async (_request, reply) => {
     const [totalRecords, available, activeBorrows, returnedToday] = await Promise.all([
       prisma.medicalRecord.count(),
       prisma.medicalRecord.count({ where: { status: "AVAILABLE" } }),

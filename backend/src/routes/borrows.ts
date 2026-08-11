@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { Errors } from "../lib/errors.js";
 import { BORROW_STATUS_LABEL, toBorrowView } from "../lib/domain.js";
+import { authenticate, requireRoles } from "../lib/auth.js";
 
 const borrowBodySchema = z.object({
   hn: z.string().regex(/^\d{8,10}$/, "HN ต้องเป็นตัวเลข 8-10 หลัก"),
@@ -50,8 +51,8 @@ function serializeBorrow(b: BorrowWithRelations) {
 }
 
 export async function borrowRoutes(app: FastifyInstance): Promise<void> {
-  // ยืมแฟ้ม
-  app.post("/borrows", async (request, reply) => {
+  // ยืมแฟ้ม — เฉพาะ ADMIN (เจ้าหน้าที่เวชระเบียน)
+  app.post("/borrows", { preHandler: [authenticate, requireRoles("ADMIN")] }, async (request, reply) => {
     const body = borrowBodySchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({
@@ -60,16 +61,19 @@ export async function borrowRoutes(app: FastifyInstance): Promise<void> {
     }
     const { hn, borrowerId, reason, dueDate } = body.data;
     if (dueDate.getTime() <= Date.now()) {
-      return reply.status(400).send({ error: Errors.invalidDueDate() });
+      throw Errors.invalidDueDate();
     }
 
     const borrower = await prisma.user.findUnique({ where: { id: borrowerId } });
     if (!borrower) {
-      return reply.status(404).send({ error: Errors.borrowerNotFound() });
+      throw Errors.borrowerNotFound();
     }
-    if (borrower.departmentId == null) {
-      return reply.status(400).send({ error: Errors.borrowerNoDepartment() });
+    const borrowerDepartmentId = borrower.departmentId;
+    if (borrowerDepartmentId == null) {
+      throw Errors.borrowerNoDepartment();
     }
+
+    const actorId = request.user.id;
 
     const result = await prisma.$transaction(async (tx) => {
       const record = await tx.medicalRecord.findUnique({ where: { hn } });
@@ -80,7 +84,7 @@ export async function borrowRoutes(app: FastifyInstance): Promise<void> {
         data: {
           medicalRecordId: record.id,
           borrowerId,
-          departmentId: borrower.departmentId!,
+          departmentId: borrowerDepartmentId,
           reason,
           dueDate,
         },
@@ -91,7 +95,7 @@ export async function borrowRoutes(app: FastifyInstance): Promise<void> {
       });
       await tx.auditLog.create({
         data: {
-          actorId: borrowerId,
+          actorId,
           action: "BORROW",
           entity: "Borrow",
           entityId: String(borrow.id),
@@ -105,62 +109,68 @@ export async function borrowRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ borrow: serializeBorrow(borrow) });
   });
 
-  // คืนแฟ้ม
-  app.post("/borrows/:id/return", async (request, reply) => {
-    const params = borrowParamsSchema.safeParse(request.params);
-    const body = returnBodySchema.safeParse(request.body);
-    if (!params.success || !body.success) {
-      return reply.status(400).send({
-        error: { code: "VALIDATION_ERROR", message: "ข้อมูลไม่ถูกต้อง" },
-      });
-    }
-    const { id } = params.data;
-    const { returnedById } = body.data;
+  // คืนแฟ้ม — เฉพาะ ADMIN
+  app.post(
+    "/borrows/:id/return",
+    { preHandler: [authenticate, requireRoles("ADMIN")] },
+    async (request, reply) => {
+      const params = borrowParamsSchema.safeParse(request.params);
+      const body = returnBodySchema.safeParse(request.body);
+      if (!params.success || !body.success) {
+        return reply.status(400).send({
+          error: { code: "VALIDATION_ERROR", message: "ข้อมูลไม่ถูกต้อง" },
+        });
+      }
+      const { id } = params.data;
+      const { returnedById } = body.data;
 
-    const borrow = await prisma.borrow.findUnique({
-      where: { id },
-      include: { medicalRecord: true },
-    });
-    if (!borrow) {
-      return reply.status(404).send({ error: Errors.borrowNotFound() });
-    }
-    if (borrow.status === "RETURNED") {
-      return reply.status(409).send({ error: Errors.alreadyReturned() });
-    }
-    if (returnedById !== borrow.borrowerId) {
-      return reply.status(400).send({ error: Errors.wrongReturner() });
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      const updated = await tx.borrow.update({
+      const borrow = await prisma.borrow.findUnique({
         where: { id },
-        data: { status: "RETURNED", returnedAt: new Date(), returnedById },
+        include: { medicalRecord: true },
       });
-      await tx.medicalRecord.update({
-        where: { id: borrow.medicalRecordId },
-        data: { status: "AVAILABLE" },
-      });
-      await tx.auditLog.create({
-        data: {
-          actorId: returnedById,
-          action: "RETURN",
-          entity: "Borrow",
-          entityId: String(id),
-          detail: { hn: borrow.medicalRecord.hn },
-        },
-      });
-      return updated;
-    });
+      if (!borrow) {
+        throw Errors.borrowNotFound();
+      }
+      if (borrow.status === "RETURNED") {
+        throw Errors.alreadyReturned();
+      }
+      if (returnedById !== borrow.borrowerId) {
+        throw Errors.wrongReturner();
+      }
 
-    const full = await prisma.borrow.findUniqueOrThrow({
-      where: { id: result.id },
-      include: borrowInclude,
-    });
-    return reply.send({ borrow: serializeBorrow(full) });
-  });
+      const actorId = request.user.id;
 
-  // รายการยืม — status=OVERDOE คำนวณจาก dueDate + 7 วัน
-  app.get("/borrows", async (request, reply) => {
+      const result = await prisma.$transaction(async (tx) => {
+        const updated = await tx.borrow.update({
+          where: { id },
+          data: { status: "RETURNED", returnedAt: new Date(), returnedById },
+        });
+        await tx.medicalRecord.update({
+          where: { id: borrow.medicalRecordId },
+          data: { status: "AVAILABLE" },
+        });
+        await tx.auditLog.create({
+          data: {
+            actorId,
+            action: "RETURN",
+            entity: "Borrow",
+            entityId: String(id),
+            detail: { hn: borrow.medicalRecord.hn },
+          },
+        });
+        return updated;
+      });
+
+      const full = await prisma.borrow.findUniqueOrThrow({
+        where: { id: result.id },
+        include: borrowInclude,
+      });
+      return reply.send({ borrow: serializeBorrow(full) });
+    },
+  );
+
+  // รายการยืม — ทุก role ที่ auth แล้ว
+  app.get("/borrows", { preHandler: [authenticate] }, async (request, reply) => {
     const query = listQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
@@ -188,10 +198,7 @@ export async function borrowRoutes(app: FastifyInstance): Promise<void> {
       take: 200,
     });
 
-    const views = borrows
-      .map(serializeBorrow)
-      .filter((b) => !status || b.status === status);
-
+    const views = borrows.map(serializeBorrow).filter((b) => !status || b.status === status);
     return reply.send({ borrows: views });
   });
 }

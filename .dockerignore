@@ -1,0 +1,30 @@
+# build context = repo root สำหรับทั้ง backend/ และ frontend/ image
+# หมายเหตุ: Docker อ่าน .dockerignore จาก root ของ build context เท่านั้น
+# ไฟล์ .dockerignore ใน backend/ หรือ frontend/ จะไม่มีผล
+
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+
+.git
+.gitignore
+Dockerfile
+**/Dockerfile
+.dockerignore
+
+# ผลลัพธ์การทดสอบ / รายงาน
+playwright-report
+backend/test-results
+backend/e2e
+coverage
+
+# เอกสาร + สถานะของ agent tooling
+prd
+AGENTS.md
+.claude
+.opencode
+.omo
+.codegraph

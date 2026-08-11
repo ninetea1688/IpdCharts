@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
+import { authenticate } from "../lib/auth.js";
 
 export async function userRoutes(app: FastifyInstance): Promise<void> {
-  // รายชื่อผู้ใช้ สำหรับ dropdown ในแบบฟอร์ม
-  app.get("/users", async (_request, reply) => {
+  app.get("/users", { preHandler: [authenticate] }, async (_request, reply) => {
     const users = await prisma.user.findMany({
       include: { department: true },
       orderBy: { fullName: "asc" },

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { Errors } from "../lib/errors.js";
 import { isOverdue, RECORD_STATUS_LABEL } from "../lib/domain.js";
+import { authenticate } from "../lib/auth.js";
 
 const recordQuerySchema = z.object({
   search: z.string().trim().max(50).optional(),
@@ -13,7 +13,6 @@ const recordParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-/** แฟ้ม + รายการยืมที่กำลัง active (ถ้ามี) */
 const recordWithBorrow = {
   borrows: {
     where: { status: "ACTIVE" },
@@ -27,14 +26,13 @@ const recordWithBorrow = {
 } as const;
 
 export async function recordRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/medical-records", async (request, reply) => {
+  app.get("/medical-records", { preHandler: [authenticate] }, async (request, reply) => {
     const query = recordQuerySchema.safeParse(request.query);
     if (!query.success) {
       return reply.status(400).send({
         error: { code: "VALIDATION_ERROR", message: query.error.issues[0]?.message ?? "พารามิเตอร์ไม่ถูกต้อง" },
       });
     }
-
     const { search, status } = query.data;
     const records = await prisma.medicalRecord.findMany({
       where: {
@@ -70,7 +68,7 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
-  app.get("/medical-records/:id", async (request, reply) => {
+  app.get("/medical-records/:id", { preHandler: [authenticate] }, async (request, reply) => {
     const params = recordParamsSchema.safeParse(request.params);
     if (!params.success) {
       return reply.status(400).send({
@@ -81,7 +79,6 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     const record = await prisma.medicalRecord.findUnique({
       where: { id: params.data.id },
       include: {
-        ...recordWithBorrow,
         borrows: {
           include: { borrower: true, returnedBy: true, department: true },
           orderBy: { createdAt: "desc" },
@@ -92,8 +89,6 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
     if (!record) {
       return reply.status(404).send({ error: { code: "RECORD_NOT_FOUND", message: "ไม่พบแฟ้มเวชระเบียน" } });
     }
-    // แยก active borrow ออกจากประวัติ — ห้ามใช้ [activeBorrow, ...history]
-    // เพราะ item แรกตาม createdAt อาจเป็นรายการที่คืนแล้วก็ได้
     const activeBorrow = record.borrows.find((b) => b.status === "ACTIVE") ?? null;
     const history = record.borrows.filter((b) => b.status !== "ACTIVE");
 
@@ -103,7 +98,7 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
         hn: record.hn,
         patientName: record.patientName,
         status: record.status,
-        activeBorrow: activeBorrow && activeBorrow.status === "ACTIVE"
+        activeBorrow: activeBorrow
           ? {
               id: activeBorrow.id,
               borrower: activeBorrow.borrower.fullName,

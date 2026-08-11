@@ -1,6 +1,6 @@
 /** ประเภทข้อมูลจาก backend `/api/v1/*` — ต้องตรงกับ shape จริง (ดู backend/src/routes) */
 
-export type Role = "ADMIN" | "BORROWER" | "HEAD";
+export type Role = "ADMIN" | "BORROWER" | "DEPARTMENT_HEAD";
 
 export interface User {
   id: number;
@@ -84,12 +84,29 @@ export class ApiError extends Error {
   }
 }
 
+/** อ่าน token จาก localStorage (set โดย auth.tsx) */
+function getToken(): string | null {
+  try {
+    const raw = localStorage.getItem("ipdcharts_auth");
+    if (!raw) return null;
+    return (JSON.parse(raw) as { token: string }).token;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    ...(init?.body != null ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
   let res: Response;
   try {
     res = await fetch(`/api/v1${path}`, {
-      headers: init?.body != null ? { "Content-Type": "application/json" } : undefined,
       ...init,
+      headers,
     });
   } catch {
     throw new ApiError("ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้", "NETWORK_ERROR", 0);
@@ -99,6 +116,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await res.json().catch(() => null)) as {
       error?: { code?: string; message?: string };
     } | null;
+    if (res.status === 401) {
+      // Token หมดอายุ/ไม่ถูกต้อง — ล้าง storage แล้ว throw
+      localStorage.removeItem("ipdcharts_auth");
+    }
     throw new ApiError(
       body?.error?.message ?? "เกิดข้อผิดพลาด กรุณาลองใหม่",
       body?.error?.code ?? "UNKNOWN",
@@ -115,6 +136,30 @@ function buildQuery(params: Record<string, string | undefined>): string {
   }
   const qs = q.toString();
   return qs ? `?${qs}` : "";
+}
+
+/** เข้าสู่ระบบ — ได้ token + ข้อมูลผู้ใช้ */
+export async function apiLogin(
+  username: string,
+  password: string,
+): Promise<{ token: string; user: User }> {
+  const res = await fetch("/api/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    throw new ApiError(
+      body?.error?.message ?? "เข้าสู่ระบบไม่สำเร็จ",
+      body?.error?.code ?? "LOGIN_FAILED",
+      res.status,
+    );
+  }
+  return res.json() as Promise<{ token: string; user: User }>;
 }
 
 export const api = {

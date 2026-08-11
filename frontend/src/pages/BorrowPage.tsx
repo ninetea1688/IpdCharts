@@ -1,14 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, type User } from "../lib/api";
 import { defaultDueDateValue, formatDateTime } from "../lib/format";
-import { Button, Card, ErrorBanner, Field, Input, PageHeader, Select, SuccessBanner } from "../components/ui";
+import { Button, Card, ErrorBanner, Field, Input, Select, SuccessBanner, PageHeader } from "../components/ui";
+import QrScanner from "../components/QrScanner";
 
 export default function BorrowPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [hn, setHn] = useState("");
   const [borrowerId, setBorrowerId] = useState("");
   const [reason, setReason] = useState("");
-  const [dueDate, setDueDate] = useState(defaultDueDateValue);
+  const [dueDate, setDueDate] = useState(defaultDueDateValue());
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -52,6 +53,15 @@ export default function BorrowPage() {
     }
   }
 
+  function handleScan(decodedText: string) {
+    // Try to extract HN from scanned text
+    const hnMatch = decodedText.match(/\d{8,10}/);
+    if (hnMatch) {
+      setHn(hnMatch[0]);
+      setError(null);
+    }
+  }
+
   return (
     <div>
       <PageHeader title="ยืมแฟ้ม" subtitle="สแกนหรือกรอก HN แล้วระบุผู้ยืม เหตุผล และกำหนดคืน" />
@@ -59,6 +69,10 @@ export default function BorrowPage() {
       {loadError ? <ErrorBanner message={loadError} /> : null}
       {error ? <ErrorBanner message={error} /> : null}
       {success ? <SuccessBanner message={success} /> : null}
+
+      <div className="mb-6">
+        <QrScanner onScan={handleScan} />
+      </div>
 
       <Card className="max-w-xl p-5">
         <form onSubmit={handleSubmit} className="space-y-4">

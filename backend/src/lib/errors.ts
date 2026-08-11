@@ -23,4 +23,7 @@ export const Errors = {
   borrowerNoDepartment: () => new AppError(400, "BORROWER_NO_DEPARTMENT", "ผู้ยืมไม่มีหน่วยงาน — กรุณาติดต่อเจ้าหน้าที่เวชระเบียน"),
   invalidDueDate: () => new AppError(400, "INVALID_DUE_DATE", "กำหนดคืนต้องเป็นวันที่ในอนาคต"),
   userNotFound: () => new AppError(404, "USER_NOT_FOUND", "ไม่พบผู้ใช้งานในระบบ"),
+  invalidCredentials: () => new AppError(401, "INVALID_CREDENTIALS", "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"),
+  unauthorized: () => new AppError(401, "UNAUTHORIZED", "กรุณาเข้าสู่ระบบก่อนใช้งาน"),
+  forbidden: () => new AppError(403, "FORBIDDEN", "ไม่มีสิทธิ์เข้าถึงข้อมูลนี้"),
 } as const;

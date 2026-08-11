@@ -1,4 +1,5 @@
 import { PrismaClient, Role } from "@prisma/client";
+import { hash } from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -17,17 +18,19 @@ async function main() {
   const surgery = await prisma.department.create({ data: { name: "ศัลยกรรม" } });
   const pediatric = await prisma.department.create({ data: { name: "กุมารเวช" } });
 
+  const passwordHash = await hash("password123", 10);
+
   const admin = await prisma.user.create({
-    data: { username: "mr-admin", fullName: "นางสาวสมหญิง เจ้าหน้าที่เวชระเบียน", role: Role.ADMIN },
+    data: { username: "mr-admin", passwordHash, fullName: "นางสาวสมหญิง เจ้าหน้าที่เวชระเบียน", role: Role.ADMIN },
   });
   const nurse = await prisma.user.create({
-    data: { username: "nurse-mali", fullName: "นางสาวมาลี พยาบาล", role: Role.BORROWER, departmentId: surgery.id },
+    data: { username: "nurse-mali", passwordHash, fullName: "นางสาวมาลี พยาบาล", role: Role.BORROWER, departmentId: surgery.id },
   });
   const doctor = await prisma.user.create({
-    data: { username: "dr-wichai", fullName: "นายแพทย์วิชัย แพทย์", role: Role.BORROWER, departmentId: icu.id },
+    data: { username: "dr-wichai", passwordHash, fullName: "นายแพทย์วิชัย แพทย์", role: Role.BORROWER, departmentId: icu.id },
   });
   const head = await prisma.user.create({
-    data: { username: "head-somchai", fullName: "นายสมชาย หัวหน้าศัลยกรรม", role: Role.DEPARTMENT_HEAD, departmentId: surgery.id },
+    data: { username: "head-somchai", passwordHash, fullName: "นายสมชาย หัวหน้าศัลยกรรม", role: Role.DEPARTMENT_HEAD, departmentId: surgery.id },
   });
 
   const patients = [

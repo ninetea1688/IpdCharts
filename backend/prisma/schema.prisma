@@ -26,6 +26,7 @@ enum BorrowStatus {
 model User {
   id           Int         @id @default(autoincrement())
   username     String      @unique
+  passwordHash String      @default("")
   fullName     String
   role         Role
   departmentId Int?

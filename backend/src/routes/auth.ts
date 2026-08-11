@@ -1,0 +1,73 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { prisma } from "../lib/prisma.js";
+import { Errors } from "../lib/errors.js";
+import { authenticate, signAccessToken, verifyPassword } from "../lib/auth.js";
+
+const loginBodySchema = z.object({
+  username: z.string().trim().min(1, "กรุณาระบุชื่อผู้ใช้").max(50),
+  password: z.string().min(1, "กรุณาระบุรหัสผ่าน").max(100),
+});
+
+function serializeUser(u: {
+  id: number;
+  username: string;
+  fullName: string;
+  role: string;
+  department: { name: string } | null;
+}) {
+  return {
+    id: u.id,
+    username: u.username,
+    fullName: u.fullName,
+    role: u.role,
+    department: u.department?.name ?? null,
+  };
+}
+
+export async function authRoutes(app: FastifyInstance): Promise<void> {
+  // เข้าสู่ระบบ — ได้ token + ข้อมูลผู้ใช้
+  app.post("/auth/login", async (request, reply) => {
+    const body = loginBodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.status(400).send({
+        error: { code: "VALIDATION_ERROR", message: body.error.issues[0]?.message ?? "ข้อมูลไม่ถูกต้อง" },
+      });
+    }
+    const { username, password } = body.data;
+
+    const user = await prisma.user.findUnique({ where: { username }, include: { department: true } });
+    const passwordOk = user && user.passwordHash !== "" ? await verifyPassword(password, user.passwordHash) : false;
+    if (!user || !passwordOk) {
+      // ข้อความเดียวกันทั้งกรณีไม่พบผู้ใช้/รหัสผิด — ป้องกัน user enumeration
+      throw Errors.invalidCredentials();
+    }
+
+    const authUser = {
+      id: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      role: user.role,
+      departmentId: user.departmentId,
+      department: user.department?.name ?? null,
+    };
+    const token = await signAccessToken(authUser);
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "LOGIN",
+        entity: "User",
+        entityId: String(user.id),
+        detail: { username: user.username },
+      },
+    });
+
+    return reply.send({ token, user: serializeUser(user) });
+  });
+
+  // ข้อมูลผู้ใช้ปัจจุบัน (ใช้ตรวจ token ตอนเปิดแอป)
+  app.get("/auth/me", { preHandler: authenticate }, async (request, reply) => {
+    return reply.send({ user: request.user });
+  });
+}

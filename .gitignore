@@ -13,6 +13,12 @@ dist/
 build/
 coverage/
 
+# ---- Test artifacts ----
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
 # ---- Environment & secrets ----
 .env
 .env.*

@@ -3,21 +3,51 @@ services:
     image: postgres:16-alpine
     container_name: ipdcharts-postgres
     environment:
-      POSTGRES_USER: ipd
-      POSTGRES_PASSWORD: ipd_dev_password
-      POSTGRES_DB: ipdcharts
-      # OrbStack NAT makes connections appear from the VM gateway IP,
-      # which the default pg_hba.conf rejects. Explicitly allow all hosts.
+      POSTGRES_USER: ${POSTGRES_USER:-ipd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipd_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ipdcharts}
       POSTGRES_HOST_AUTH_METHOD: scram-sha-256
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - ipdcharts_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ipd -d ipdcharts"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ipd} -d ${POSTGRES_DB:-ipdcharts}"]
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      # context = repo root เพราะ bun.lock ของ workspace อยู่ที่ root
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ipdcharts-backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ipd}:${POSTGRES_PASSWORD:-ipd_dev_password}@db:5432/${POSTGRES_DB:-ipdcharts}?schema=public
+      PORT: 3000
+      # ไม่มีค่า default โดยตั้งใจ — backend จะปฏิเสธการ start ถ้าไม่ได้ตั้ง (ดู .env.example)
+      JWT_SECRET: ${JWT_SECRET:-}
+      NODE_ENV: production
+      LINE_NOTIFY_TOKEN: ${LINE_NOTIFY_TOKEN:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: ipdcharts-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
   ipdcharts_pgdata:
