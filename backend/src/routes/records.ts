@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
-import { isOverdue, RECORD_STATUS_LABEL } from "../lib/domain.js";
+import {
+  INCIDENT_STATUS_LABEL,
+  INCIDENT_TYPE_LABEL,
+  isOverdue,
+  RECORD_STATUS_LABEL,
+} from "../lib/domain.js";
 import { authenticate } from "../lib/auth.js";
 
 const recordQuerySchema = z.object({
@@ -25,6 +31,21 @@ const recordWithBorrow = {
   },
 } as const;
 
+/**
+ * บันทึกการเข้าถึงข้อมูลผู้ป่วย — NFR ด้าน PDPA กำหนดให้ audit ทุกการเข้าถึง
+ * เขียนแบบไม่ block คำตอบ: ถ้า audit ล้มเหลวไม่ควรทำให้ผู้ใช้ดูข้อมูลไม่ได้
+ * แต่ต้องเห็นใน log ว่าพลาด
+ */
+function auditRead(
+  actorId: number,
+  action: "RECORD_SEARCH" | "RECORD_VIEW",
+  detail: Prisma.InputJsonValue,
+): void {
+  void prisma.auditLog
+    .create({ data: { actorId, action, entity: "MedicalRecord", detail } })
+    .catch((err: unknown) => console.error(`[audit] บันทึก ${action} ไม่สำเร็จ:`, err));
+}
+
 export async function recordRoutes(app: FastifyInstance): Promise<void> {
   app.get("/medical-records", { preHandler: [authenticate] }, async (request, reply) => {
     const query = recordQuerySchema.safeParse(request.query);
@@ -42,6 +63,12 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
       include: recordWithBorrow,
       orderBy: { hn: "asc" },
       take: 200,
+    });
+
+    auditRead(request.user.id, "RECORD_SEARCH", {
+      search: search ?? null,
+      status: status ?? null,
+      resultCount: records.length,
     });
 
     return reply.send({
@@ -83,12 +110,19 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
           include: { borrower: true, returnedBy: true, department: true },
           orderBy: { createdAt: "desc" },
         },
+        incidents: {
+          include: { reportedBy: true, resolvedBy: true },
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
 
     if (!record) {
       return reply.status(404).send({ error: { code: "RECORD_NOT_FOUND", message: "ไม่พบแฟ้มเวชระเบียน" } });
     }
+
+    auditRead(request.user.id, "RECORD_VIEW", { hn: record.hn, medicalRecordId: record.id });
+
     const activeBorrow = record.borrows.find((b) => b.status === "ACTIVE") ?? null;
     const history = record.borrows.filter((b) => b.status !== "ACTIVE");
 
@@ -98,6 +132,20 @@ export async function recordRoutes(app: FastifyInstance): Promise<void> {
         hn: record.hn,
         patientName: record.patientName,
         status: record.status,
+        statusLabel: RECORD_STATUS_LABEL[record.status],
+        incidents: record.incidents.map((i) => ({
+          id: i.id,
+          type: i.type,
+          typeLabel: INCIDENT_TYPE_LABEL[i.type],
+          status: i.status,
+          statusLabel: INCIDENT_STATUS_LABEL[i.status],
+          description: i.description,
+          reportedBy: i.reportedBy.fullName,
+          resolvedBy: i.resolvedBy?.fullName ?? null,
+          resolvedAt: i.resolvedAt,
+          resolutionNote: i.resolutionNote,
+          createdAt: i.createdAt,
+        })),
         activeBorrow: activeBorrow
           ? {
               id: activeBorrow.id,

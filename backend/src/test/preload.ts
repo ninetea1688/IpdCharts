@@ -3,3 +3,5 @@
 process.env.DATABASE_URL ??= "postgresql://ipd:ipd_dev_password@localhost:5433/ipdcharts_test?schema=public";
 process.env.JWT_SECRET ??= "ipdcharts-test-secret";
 process.env.NODE_ENV = "test";
+// ปิด rate limit เป็นค่าปริยายใน test — เทสต์ที่ต้องการทดสอบลิมิตจะตั้งค่าเองก่อน buildApp()
+process.env.AUTH_RATE_LIMIT_MAX ??= "0";

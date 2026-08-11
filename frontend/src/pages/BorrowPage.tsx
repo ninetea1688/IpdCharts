@@ -10,6 +10,7 @@ export default function BorrowPage() {
   const [borrowerId, setBorrowerId] = useState("");
   const [reason, setReason] = useState("");
   const [dueDate, setDueDate] = useState(defaultDueDateValue());
+  const [requiresApproval, setRequiresApproval] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -40,12 +41,18 @@ export default function BorrowPage() {
         borrowerId: parsedBorrowerId,
         reason: reason.trim(),
         dueDate: new Date(dueDate).toISOString(),
+        requiresApproval,
       });
-      setSuccess(`ยืมแฟ้ม ${borrow.hn} (${borrow.patientName}) สำเร็จ — กำหนดคืน ${formatDateTime(borrow.dueDate)}`);
+      setSuccess(
+        borrow.status === "PENDING_APPROVAL"
+          ? `ส่งคำขอยืมแฟ้ม ${borrow.hn} (${borrow.patientName}) แล้ว — รอหัวหน้าหน่วยงานอนุมัติก่อนจ่ายแฟ้ม`
+          : `ยืมแฟ้ม ${borrow.hn} (${borrow.patientName}) สำเร็จ — กำหนดคืน ${formatDateTime(borrow.dueDate)}`,
+      );
       setHn("");
       setBorrowerId("");
       setReason("");
       setDueDate(defaultDueDateValue());
+      setRequiresApproval(false);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : "ยืมแฟ้มไม่สำเร็จ");
     } finally {
@@ -121,9 +128,25 @@ export default function BorrowPage() {
             />
           </Field>
 
+          <label className="flex items-start gap-2.5 rounded-md border border-slate-200 bg-slate-50 p-3">
+            <input
+              type="checkbox"
+              checked={requiresApproval}
+              onChange={(e) => setRequiresApproval(e.target.checked)}
+              className="mt-0.5 size-4 accent-teal-700"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-slate-900">ต้องขออนุมัติก่อนจ่ายแฟ้ม</span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                สำหรับกรณีพิเศษ เช่น ยืมออกนอกโรงพยาบาล — ระบบจะบันทึกเป็นคำขอและยังไม่จ่ายแฟ้ม
+                จนกว่าหัวหน้าหน่วยงานจะอนุมัติ
+              </span>
+            </span>
+          </label>
+
           <div className="flex justify-end pt-2">
             <Button type="submit" disabled={submitting || users.length === 0}>
-              {submitting ? "กำลังบันทึก..." : "ยืมแฟ้ม"}
+              {submitting ? "กำลังบันทึก..." : requiresApproval ? "ส่งคำขอยืม" : "ยืมแฟ้ม"}
             </Button>
           </div>
         </form>

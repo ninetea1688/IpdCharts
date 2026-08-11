@@ -3,14 +3,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
   type JSX,
 } from "react";
-import type { User, Role } from "./api";
-import { ApiError } from "./api";
-
-const AUTH_KEY = "ipdcharts_auth";
+import { apiLogin, apiMe, AUTH_STORAGE_KEY, setUnauthorizedHandler, type Role, type User } from "./api";
 
 interface StoredAuth {
   token: string;
@@ -29,7 +27,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function getStoredAuth(): StoredAuth | null {
   try {
-    const raw = localStorage.getItem(AUTH_KEY);
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredAuth;
     if (parsed.token && parsed.user) return parsed;
@@ -40,11 +38,11 @@ function getStoredAuth(): StoredAuth | null {
 }
 
 function setStoredAuth(token: string, user: User): void {
-  localStorage.setItem(AUTH_KEY, JSON.stringify({ token, user }));
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token, user }));
 }
 
 function clearStoredAuth(): void {
-  localStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
 export function getCurrentToken(): string | null {
@@ -56,50 +54,62 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const stored = getStoredAuth();
-    if (stored) {
-      setToken(stored.token);
-      setUser(stored.user);
-    }
-    setLoading(false);
-  }, []);
-
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch("/api/v1/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
-      throw new ApiError(
-        body?.error?.message ?? "เข้าสู่ระบบไม่สำเร็จ",
-        "LOGIN_FAILED",
-        res.status,
-      );
-    }
-
-    const data = (await res.json()) as { token: string; user: User };
-    setToken(data.token);
-    setUser(data.user);
-    setStoredAuth(data.token, data.user);
-  }, []);
-
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     clearStoredAuth();
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
-      {children}
-    </AuthContext.Provider>
+  // API client เรียกกลับมาเมื่อเจอ 401 — ต้องล้าง state ด้วย ไม่ใช่แค่ localStorage
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+    return () => setUnauthorizedHandler(null);
+  }, [logout]);
+
+  // ตอนเปิดแอป: ตรวจ token ที่เก็บไว้กับเซิร์ฟเวอร์จริง
+  // token อาจหมดอายุหรือบัญชีถูกปิดไปแล้วระหว่างที่ปิดแท็บอยู่
+  useEffect(() => {
+    const stored = getStoredAuth();
+    if (!stored) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setToken(stored.token);
+    setUser(stored.user);
+
+    void apiMe()
+      .then((fresh) => {
+        if (cancelled) return;
+        setUser(fresh);
+        setStoredAuth(stored.token, fresh);
+      })
+      .catch(() => {
+        if (!cancelled) logout();
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [logout]);
+
+  const login = useCallback(async (username: string, password: string) => {
+    const data = await apiLogin(username, password);
+    setToken(data.token);
+    setUser(data.user);
+    setStoredAuth(data.token, data.user);
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, token, login, logout, loading }),
+    [user, token, login, logout, loading],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

@@ -30,7 +30,17 @@ services:
       # ไม่มีค่า default โดยตั้งใจ — backend จะปฏิเสธการ start ถ้าไม่ได้ตั้ง (ดู .env.example)
       JWT_SECRET: ${JWT_SECRET:-}
       NODE_ENV: production
-      LINE_NOTIFY_TOKEN: ${LINE_NOTIFY_TOKEN:-}
+      # แจ้งเตือนทางอีเมล — ไม่ตั้ง SMTP_HOST = ไม่มีการแจ้งเตือนออกไป
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-IpdCharts <no-reply@ipdcharts.local>}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10}
+      AUTH_RATE_LIMIT_WINDOW: ${AUTH_RATE_LIMIT_WINDOW:-1 minute}
     ports:
       - "3000:3000"
     depends_on:

@@ -69,12 +69,23 @@ export function Badge({
   );
 }
 
+const statusBadges: Record<string, { tone: BadgeTone; label: string }> = {
+  AVAILABLE: { tone: "emerald", label: "ว่าง" },
+  BORROWED: { tone: "sky", label: "ถูกยืม" },
+  RETURNED: { tone: "slate", label: "คืนแล้ว" },
+  OVERDUE: { tone: "red", label: "เกินกำหนด" },
+  PENDING_APPROVAL: { tone: "amber", label: "รออนุมัติ" },
+  REJECTED: { tone: "slate", label: "ไม่อนุมัติ" },
+  DAMAGED: { tone: "amber", label: "ชำรุด" },
+  LOST: { tone: "red", label: "สูญหาย" },
+  OPEN: { tone: "amber", label: "รอดำเนินการ" },
+  RESOLVED: { tone: "emerald", label: "ปิดเรื่องแล้ว" },
+};
+
 export function StatusBadge({ status, overdue }: { status: string; overdue?: boolean }) {
   if (overdue) return <Badge tone="red">เกินกำหนด</Badge>;
-  if (status === "AVAILABLE") return <Badge tone="emerald">ว่าง</Badge>;
-  if (status === "BORROWED") return <Badge tone="sky">ถูกยืม</Badge>;
-  if (status === "RETURNED") return <Badge tone="slate">คืนแล้ว</Badge>;
-  if (status === "OVERDUE") return <Badge tone="red">เกินกำหนด</Badge>;
+  const known = statusBadges[status];
+  if (known) return <Badge tone={known.tone}>{known.label}</Badge>;
   return <Badge tone="slate">{status}</Badge>;
 }
 

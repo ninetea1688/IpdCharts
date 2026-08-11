@@ -3,7 +3,9 @@ import { prisma } from "../lib/prisma.js";
 import { hashPassword, signAccessToken } from "../lib/auth.js";
 
 export async function resetDb(): Promise<void> {
+  // ลำดับสำคัญ — ตารางที่อ้างถึงตารางอื่นต้องถูกลบก่อน
   await prisma.auditLog.deleteMany();
+  await prisma.incident.deleteMany();
   await prisma.borrow.deleteMany();
   await prisma.medicalRecord.deleteMany();
   await prisma.user.deleteMany();

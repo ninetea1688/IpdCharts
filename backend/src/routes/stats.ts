@@ -12,12 +12,15 @@ function startOfTodayBangkok(now: Date = new Date()): Date {
 
 export async function statsRoutes(app: FastifyInstance): Promise<void> {
   app.get("/stats", { preHandler: [authenticate] }, async (_request, reply) => {
-    const [totalRecords, available, activeBorrows, returnedToday] = await Promise.all([
-      prisma.medicalRecord.count(),
-      prisma.medicalRecord.count({ where: { status: "AVAILABLE" } }),
-      prisma.borrow.findMany({ where: { status: "ACTIVE" }, select: { dueDate: true } }),
-      prisma.borrow.count({ where: { status: "RETURNED", returnedAt: { gte: startOfTodayBangkok() } } }),
-    ]);
+    const [totalRecords, available, activeBorrows, returnedToday, pendingApproval, openIncidents] =
+      await Promise.all([
+        prisma.medicalRecord.count(),
+        prisma.medicalRecord.count({ where: { status: "AVAILABLE" } }),
+        prisma.borrow.findMany({ where: { status: "ACTIVE" }, select: { dueDate: true } }),
+        prisma.borrow.count({ where: { status: "RETURNED", returnedAt: { gte: startOfTodayBangkok() } } }),
+        prisma.borrow.count({ where: { status: "PENDING_APPROVAL" } }),
+        prisma.incident.count({ where: { status: "OPEN" } }),
+      ]);
 
     const borrowed = activeBorrows.length;
     const overdue = activeBorrows.filter((b) => isOverdue(b.dueDate)).length;
@@ -29,6 +32,8 @@ export async function statsRoutes(app: FastifyInstance): Promise<void> {
         borrowed,
         overdue,
         returnedToday,
+        pendingApproval,
+        openIncidents,
       },
     });
   });

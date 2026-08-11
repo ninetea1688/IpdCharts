@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { scanOverdueAndNotify, generateDailySummary } from "./lib/overdue-scanner.js";
+import { notificationChannelsConfigured } from "./lib/notifications.js";
 import cron from "node-cron";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -58,7 +59,13 @@ try {
       }
     });
 
-    console.log("[cron] Overdue scanner และ daily summary เปิดใช้งานแล้ว");
+    const channels = notificationChannelsConfigured();
+    console.log(
+      channels.length > 0
+        ? `[cron] Overdue scanner และ daily summary เปิดใช้งานแล้ว (ช่องทางแจ้งเตือน: ${channels.join(", ")})`
+        : "[cron] Overdue scanner ทำงานแล้ว แต่ยังไม่ได้ตั้งค่าช่องทางแจ้งเตือน — " +
+            "ตั้ง SMTP_HOST เพื่อส่งอีเมล (ดู .env.example) มิฉะนั้นจะไม่มีการแจ้งเตือนใดๆ ออกไป",
+    );
   }
 } catch (err) {
   app.log.error(err);

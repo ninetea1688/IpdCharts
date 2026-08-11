@@ -8,7 +8,9 @@ const now = Date.now();
 
 async function main() {
   // Reset demo data (seed is idempotent for dev)
+  // ลำดับสำคัญ — ตารางที่อ้างถึงตารางอื่นต้องถูกลบก่อน
   await prisma.auditLog.deleteMany();
+  await prisma.incident.deleteMany();
   await prisma.borrow.deleteMany();
   await prisma.medicalRecord.deleteMany();
   await prisma.user.deleteMany();
@@ -20,17 +22,30 @@ async function main() {
 
   const passwordHash = await hash("password123", 10);
 
+  // อีเมลเป็นตัวอย่างในโดเมนสมมติ — ใช้ทดสอบการแจ้งเตือนกับ SMTP ทดสอบ (เช่น MailHog)
   const admin = await prisma.user.create({
-    data: { username: "mr-admin", passwordHash, fullName: "นางสาวสมหญิง เจ้าหน้าที่เวชระเบียน", role: Role.ADMIN },
+    data: {
+      username: "mr-admin", passwordHash, fullName: "นางสาวสมหญิง เจ้าหน้าที่เวชระเบียน",
+      role: Role.ADMIN, email: "mr-admin@ipdcharts.local",
+    },
   });
   const nurse = await prisma.user.create({
-    data: { username: "nurse-mali", passwordHash, fullName: "นางสาวมาลี พยาบาล", role: Role.BORROWER, departmentId: surgery.id },
+    data: {
+      username: "nurse-mali", passwordHash, fullName: "นางสาวมาลี พยาบาล",
+      role: Role.BORROWER, departmentId: surgery.id, email: "nurse-mali@ipdcharts.local",
+    },
   });
   const doctor = await prisma.user.create({
-    data: { username: "dr-wichai", passwordHash, fullName: "นายแพทย์วิชัย แพทย์", role: Role.BORROWER, departmentId: icu.id },
+    data: {
+      username: "dr-wichai", passwordHash, fullName: "นายแพทย์วิชัย แพทย์",
+      role: Role.BORROWER, departmentId: icu.id, email: "dr-wichai@ipdcharts.local",
+    },
   });
   const head = await prisma.user.create({
-    data: { username: "head-somchai", passwordHash, fullName: "นายสมชาย หัวหน้าศัลยกรรม", role: Role.DEPARTMENT_HEAD, departmentId: surgery.id },
+    data: {
+      username: "head-somchai", passwordHash, fullName: "นายสมชาย หัวหน้าศัลยกรรม",
+      role: Role.DEPARTMENT_HEAD, departmentId: surgery.id, email: "head-somchai@ipdcharts.local",
+    },
   });
 
   const patients = [
@@ -89,6 +104,33 @@ async function main() {
       returnedAt: new Date(now - 1 * DAY),
       returnedById: nurse.id,
     },
+  });
+
+  // Borrow 4: กรณีพิเศษที่รอหัวหน้าหน่วยงานอนุมัติ (แฟ้มยังไม่ถูกจ่ายออก)
+  await prisma.borrow.create({
+    data: {
+      medicalRecordId: records[3]!.id,
+      borrowerId: nurse.id,
+      departmentId: surgery.id,
+      reason: "ขอนำแฟ้มออกนอกโรงพยาบาลเพื่อประกอบคดี",
+      dueDate: new Date(now + 5 * DAY),
+      requiresApproval: true,
+      status: "PENDING_APPROVAL",
+    },
+  });
+
+  // Incident: แฟ้มชำรุดที่ยังไม่ปิดเรื่อง
+  await prisma.incident.create({
+    data: {
+      medicalRecordId: records[4]!.id,
+      type: "DAMAGED",
+      description: "ปกแฟ้มฉีกขาด เอกสารหน้า 3-5 เปียกน้ำ",
+      reportedById: admin.id,
+    },
+  });
+  await prisma.medicalRecord.update({
+    where: { id: records[4]!.id },
+    data: { status: "DAMAGED" },
   });
 
   await prisma.auditLog.createMany({

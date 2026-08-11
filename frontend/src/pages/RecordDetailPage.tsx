@@ -99,11 +99,48 @@ export default function RecordDetailPage() {
           </Card>
         ) : (
           <Card className="flex items-center gap-3 p-5">
-            <Badge tone="emerald">ว่าง</Badge>
-            <span className="text-sm text-slate-600">แฟ้มนี้อยู่ที่ห้องเวชระเบียน พร้อมให้ยืม</span>
+            <StatusBadge status={record.status} />
+            <span className="text-sm text-slate-600">
+              {record.status === "AVAILABLE"
+                ? "แฟ้มนี้อยู่ที่ห้องเวชระเบียน พร้อมให้ยืม"
+                : record.status === "DAMAGED"
+                  ? "แฟ้มชำรุด อยู่ระหว่างดำเนินการ — ยืมไม่ได้จนกว่าจะปิดเรื่อง"
+                  : record.status === "LOST"
+                    ? "แฟ้มสูญหาย อยู่ระหว่างติดตาม"
+                    : "ไม่มีรายการยืมที่ยังไม่ปิด"}
+            </span>
           </Card>
         )}
       </div>
+
+      {record.incidents.length > 0 ? (
+        <>
+          <h2 className="mb-3 text-base font-semibold text-slate-900">
+            เหตุการณ์ชำรุด/สูญหาย ({record.incidents.length})
+          </h2>
+          <div className="mb-6 space-y-2">
+            {record.incidents.map((i) => (
+              <Card key={i.id} className="p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={i.type} />
+                  <StatusBadge status={i.status} />
+                  <span className="text-xs text-slate-500">
+                    รายงานโดย {i.reportedBy} เมื่อ {formatDateTime(i.createdAt)}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-700">{i.description}</p>
+                {i.status === "RESOLVED" ? (
+                  <p className="mt-1.5 text-xs text-emerald-700">
+                    ปิดเรื่องโดย {i.resolvedBy}
+                    {i.resolvedAt ? ` เมื่อ ${formatDateTime(i.resolvedAt)}` : ""}
+                    {i.resolutionNote ? ` — ${i.resolutionNote}` : ""}
+                  </p>
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       <h2 className="mb-3 text-base font-semibold text-slate-900">
         ประวัติการยืม-คืน ({record.history.length})

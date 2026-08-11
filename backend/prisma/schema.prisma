@@ -16,11 +16,25 @@ enum Role {
 enum RecordStatus {
   AVAILABLE
   BORROWED
+  DAMAGED
+  LOST
 }
 
 enum BorrowStatus {
+  PENDING_APPROVAL
   ACTIVE
   RETURNED
+  REJECTED
+}
+
+enum IncidentType {
+  DAMAGED
+  LOST
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
 }
 
 model User {
@@ -31,11 +45,19 @@ model User {
   role         Role
   departmentId Int?
   department   Department? @relation(fields: [departmentId], references: [id])
+  /// ช่องทางแจ้งเตือนหลัก — ถ้าว่างจะไม่ได้รับแจ้งเตือนแฟ้มเกินกำหนด
+  email        String?
+  /// LINE userId สำหรับ Messaging API — ยังไม่ได้เปิดใช้งาน (ดู lib/notifications.ts)
+  lineUserId   String?
+  active       Boolean     @default(true)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   borrowsAsBorrower Borrow[]  @relation("BorrowerBorrows")
   borrowsAsReturner Borrow[]  @relation("ReturnerBorrows")
+  borrowsApproved   Borrow[]  @relation("ApproverBorrows")
+  incidentsReported Incident[] @relation("IncidentReporter")
+  incidentsResolved Incident[] @relation("IncidentResolver")
   auditLogs         AuditLog[]
 }
 
@@ -57,7 +79,8 @@ model MedicalRecord {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  borrows Borrow[]
+  borrows   Borrow[]
+  incidents Incident[]
 }
 
 model Borrow {
@@ -74,12 +97,46 @@ model Borrow {
   returnedAt      DateTime?
   returnedById    Int?
   returnedBy      User?        @relation("ReturnerBorrows", fields: [returnedById], references: [id])
+
+  /// กรณีพิเศษที่ต้องให้หัวหน้าหน่วยงานอนุมัติก่อนจ่ายแฟ้ม (FR-03)
+  requiresApproval Boolean   @default(false)
+  approvedById     Int?
+  approvedBy       User?     @relation("ApproverBorrows", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
+  rejectedReason   String?
+
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+
+  incidents Incident[]
 
   @@index([medicalRecordId, status])
   @@index([dueDate])
   @@index([borrowerId])
+  @@index([status])
+}
+
+/// เหตุการณ์แฟ้มชำรุด/สูญหาย (FR-05)
+model Incident {
+  id              Int            @id @default(autoincrement())
+  medicalRecordId Int
+  medicalRecord   MedicalRecord  @relation(fields: [medicalRecordId], references: [id])
+  /// รายการยืมที่เกี่ยวข้อง — ว่างได้ถ้าพบความเสียหายตอนแฟ้มอยู่ในชั้น
+  borrowId        Int?
+  borrow          Borrow?        @relation(fields: [borrowId], references: [id])
+  type            IncidentType
+  status          IncidentStatus @default(OPEN)
+  description     String
+  reportedById    Int
+  reportedBy      User           @relation("IncidentReporter", fields: [reportedById], references: [id])
+  resolvedById    Int?
+  resolvedBy      User?          @relation("IncidentResolver", fields: [resolvedById], references: [id])
+  resolvedAt      DateTime?
+  resolutionNote  String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([medicalRecordId])
   @@index([status])
 }
 

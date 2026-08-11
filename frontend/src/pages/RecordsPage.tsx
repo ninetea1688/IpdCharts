@@ -10,6 +10,8 @@ const filters: { value: RecordStatus | ""; label: string }[] = [
   { value: "", label: "ทั้งหมด" },
   { value: "AVAILABLE", label: "ว่าง" },
   { value: "BORROWED", label: "ถูกยืม" },
+  { value: "DAMAGED", label: "ชำรุด" },
+  { value: "LOST", label: "สูญหาย" },
 ];
 
 export default function RecordsPage() {

@@ -3,8 +3,9 @@
 ระบบติดตามการยืม-คืนแฟ้มเวชระเบียนผู้ป่วยใน (IPD) สำหรับหน่วยงานเวชระเบียนของโรงพยาบาล
 ออกแบบมาแทนการจดสมุด/Excel ด้วยการสแกน QR/Barcode, Dashboard เรียลไทม์ และการแจ้งเตือนแฟ้มเกินกำหนดอัตโนมัติ
 
-> **สถานะ:** เฟส 1–3 (Core / Automation / Reporting) ใช้งานได้แล้ว
-> ดูรายการที่ยังไม่ได้ทำที่หัวข้อ [สิ่งที่ยังไม่ได้ทำ](#สิ่งที่ยังไม่ได้ทำ)
+> **สถานะ:** ครบทุก Functional Requirement (FR-01 ถึง FR-12) ตาม PRD
+> เหลือเพียงการเชื่อมต่อ SMTP ของโรงพยาบาลจริงเพื่อเปิดใช้การแจ้งเตือน
+> ดู [สิ่งที่ยังไม่ได้ทำ](#สิ่งที่ยังไม่ได้ทำ)
 
 ---
 
@@ -28,6 +29,8 @@
 - JWT (HS256) อายุ 12 ชั่วโมง ตรวจสอบทุก request และโหลดผู้ใช้จากฐานข้อมูลใหม่เสมอ
   (ปิดบัญชี/ลบผู้ใช้แล้ว token เดิมใช้ไม่ได้ทันที)
 - ข้อความตอบกลับตอนล็อกอินผิดเหมือนกันทุกกรณี เพื่อกัน user enumeration
+- จำกัดจำนวนครั้งการล็อกอินต่อ IP (ปริยาย 10 ครั้ง/นาที) เพื่อกัน brute-force
+- เปิดแอปแล้วตรวจ token กับเซิร์ฟเวอร์ทุกครั้ง — token หมดอายุจะเด้งไปหน้าล็อกอินทันที ไม่ค้างสถานะ
 - 3 บทบาท:
 
   | Role | ความหมาย | สิทธิ์ |
@@ -39,43 +42,85 @@
 ### 📤 บันทึกการยืม
 
 - สแกน QR/Barcode ผ่านกล้องมือถือ/แท็บเล็ต (html5-qrcode) หรือพิมพ์ HN เอง — ไม่ต้องใช้ฮาร์ดแวร์เฉพาะ
-- ตรวจสอบก่อนบันทึกทุกครั้ง: แฟ้มมีอยู่จริง, ยังว่าง (กันยืมซ้อน), ผู้ยืมมีอยู่และสังกัดหน่วยงาน, กำหนดคืนต้องเป็นอนาคต
+- ตรวจสอบก่อนบันทึกทุกครั้ง: แฟ้มมีอยู่จริง, ยังว่าง (กันยืมซ้อน), ไม่ได้ชำรุด/สูญหาย,
+  ผู้ยืมมีอยู่และสังกัดหน่วยงาน, กำหนดคืนต้องเป็นอนาคต
 - เขียนข้อมูลแบบ transaction — สร้างรายการยืม + เปลี่ยนสถานะแฟ้ม + เขียน audit log พร้อมกันหรือไม่เกิดเลย
+
+### ✅ อนุมัติคำขอกรณีพิเศษ
+
+- ติ๊ก "ต้องขออนุมัติก่อนจ่ายแฟ้ม" ตอนบันทึก (เช่น ยืมออกนอกโรงพยาบาล) → รายการเข้าสถานะ **รออนุมัติ**
+  และ **ยังไม่จ่ายแฟ้มออก** จนกว่าจะได้รับอนุมัติ
+- หัวหน้าหน่วยงานอนุมัติได้เฉพาะคำขอของหน่วยงานตนเอง (เจ้าหน้าที่เวชระเบียนอนุมัติได้ทุกหน่วยงาน)
+- ตอนอนุมัติ ระบบเช็คสถานะแฟ้มซ้ำอีกครั้ง เผื่อมีคนยืมไปแล้วระหว่างรออนุมัติ
+- ไม่อนุมัติได้พร้อมระบุเหตุผล ซึ่งจะแสดงในรายการและเก็บใน audit log
 
 ### 📥 บันทึกการคืน
 
 - สแกนรับคืน ปิดรายการพร้อม timestamp จริง
 - บังคับให้ผู้คืนตรงกับผู้ยืม (`WRONG_RETURNER`) และกันการคืนซ้ำ (`ALREADY_RETURNED`)
 - คืนแล้วแฟ้มกลับสู่สถานะ `AVAILABLE` อัตโนมัติ
+- รับคืนสภาพ "ชำรุด" ได้ในขั้นตอนเดียว — ปิดรายการยืม พักแฟ้มไว้ และเปิดเรื่องติดตามให้อัตโนมัติ
+
+### 🚨 แฟ้มชำรุด / สูญหาย
+
+- รายงานได้ทั้งตอนรับคืน (ชำรุด) และแทนการรับคืน (สูญหาย)
+- แฟ้มที่มีเรื่องค้างจะยืมไม่ได้ (`RECORD_UNUSABLE`) จนกว่าจะปิดเรื่อง
+- แจ้งเตือนเจ้าหน้าที่เวชระเบียนทุกคน + หัวหน้าหน่วยงานของผู้ยืมทันทีที่เปิดเรื่อง
+- ระบบ **หยุดทวงคืน** รายการที่แจ้งสูญหายแล้ว เพราะติดตามผ่านเรื่องที่เปิดไว้แทน
+- ปิดเรื่องพร้อมเลือกคืนแฟ้มสู่สถานะพร้อมยืม — ถ้ายังมีเรื่องอื่นค้างอยู่ ระบบจะยังไม่คืนสถานะให้
 
 ### 📊 Dashboard เรียลไทม์
 
 - การ์ดสรุป 5 ตัว: แฟ้มทั้งหมด / ว่างให้ยืม / อยู่ระหว่างยืม / เกินกำหนด / คืนวันนี้
+- แถบงานค้างที่ต้องมีคนลงมือ (คำขอรออนุมัติ, เรื่องชำรุด/สูญหายที่ยังไม่ปิด) — แสดงเฉพาะเมื่อมีจริง
 - ตารางรายการเกินกำหนดพร้อม badge สี
 - "คืนวันนี้" นับตามเที่ยงคืนโซน `Asia/Bangkok` ไม่ใช่ย้อนหลัง 24 ชั่วโมง
 
 ### 🔔 แจ้งเตือนแฟ้มเกินกำหนด
 
-- Cron ทุกชั่วโมง สแกนรายการที่เลยกำหนด แล้วส่งแจ้งเตือน (จำกัด 3 ครั้ง/รายการ/วัน นับจาก audit log)
-- Escalation: รวมรายการที่ค้างเกิน 14 วันเป็นสรุปชุดเดียว ส่งถึงหัวหน้าหน่วยงาน
+- Cron ทุกชั่วโมง สแกนรายการที่เลยกำหนด แล้วส่งอีเมลถึง **ผู้ยืมรายคน**
+  (จำกัด 3 ครั้ง/รายการ/วัน นับจาก audit log)
+- Escalation: จัดกลุ่มรายการที่ค้างเกิน 14 วันตามหน่วยงาน แล้วส่งสรุปถึงหัวหน้าหน่วยงานนั้น
+  ถ้าหน่วยงานไม่มีหัวหน้า จะตกไปที่เจ้าหน้าที่เวชระเบียน
 - สรุปประจำวันทุก 08:00 น.
-- ⚠️ ช่องทางที่เขียนไว้คือ LINE Notify ซึ่ง **LINE ปิดบริการถาวรแล้ว** — ต้องเปลี่ยนช่องทางก่อนใช้งานจริง (ดู [สิ่งที่ยังไม่ได้ทำ](#สิ่งที่ยังไม่ได้ทำ))
+- ผู้รับที่ไม่มีอีเมลจะถูกนับเป็น "ส่งไม่ได้" และขึ้น log ให้ตามด้วยมือ — ไม่บันทึกว่าแจ้งเตือนสำเร็จ
+- **ช่องทาง:** Email (SMTP) เป็นหลัก ส่วน LINE Messaging API วางโครงไว้พร้อมใช้
+  จะทำงานเมื่อตั้ง `LINE_CHANNEL_ACCESS_TOKEN` และผู้ใช้มี `lineUserId`
+  (LINE Notify ตัวเดิมถูก LINE ปิดบริการถาวรแล้ว จึงไม่ได้ใช้)
 
 ### 📁 ค้นหาแฟ้มและ Audit Trail
 
 - ค้นหาแบบ substring จาก HN, ชื่อผู้ป่วย หรือชื่อผู้ยืม + กรองตามสถานะ
 - หน้ารายละเอียดแฟ้มแสดงผู้ถือครองปัจจุบัน และประวัติการยืม-คืนทั้งหมดของแฟ้มนั้น
-- ตาราง `AuditLog` บันทึกทุกธุรกรรม (`LOGIN`, `BORROW`, `RETURN`, `OVERDUE_NOTIFICATION`, `OVERDUE_ESCALATION`) พร้อมผู้กระทำและ payload
+- ตาราง `AuditLog` บันทึกทุกธุรกรรมพร้อมผู้กระทำและ payload — รวมถึง **การอ่านข้อมูลผู้ป่วย**
+  (`RECORD_SEARCH`, `RECORD_VIEW`) ตามข้อกำหนด PDPA
+
+  <details>
+  <summary>รายการ action ทั้งหมด</summary>
+
+  `LOGIN`, `BORROW`, `BORROW_REQUEST`, `BORROW_APPROVE`, `BORROW_REJECT`, `RETURN`,
+  `INCIDENT_REPORT`, `INCIDENT_RESOLVE`, `USER_CREATE`, `USER_UPDATE`, `USER_DEACTIVATE`,
+  `RECORD_SEARCH`, `RECORD_VIEW`, `OVERDUE_NOTIFICATION`, `OVERDUE_ESCALATION`
+  </details>
+
+### 👥 จัดการผู้ใช้งาน
+
+- เพิ่ม / แก้ไข / รีเซ็ตรหัสผ่าน / เปิด-ปิดใช้งานบัญชี พร้อมกำหนดบทบาทและหน่วยงาน
+- **ปิดใช้งานแทนการลบ** เพราะ audit log และประวัติการยืมอ้างถึงผู้ใช้อยู่ — ลบจริงจะทำให้ตรวจสอบย้อนหลังไม่ได้
+- ปิดใช้งานแล้ว token เดิมใช้ไม่ได้ทันที และล็อกอินใหม่ไม่ได้
+- กันปิดบัญชีตัวเอง และกันปิดบัญชีที่ยังมีแฟ้มค้างคืน
+- รหัสผ่านไม่เคยถูกบันทึกลง audit log — เก็บแค่ว่ามีการเปลี่ยนหรือไม่
 
 ### 📄 รายงาน Excel
 
-- `GET /api/v1/reports/borrows` สร้างไฟล์ `.xlsx` ผ่าน ExcelJS
-- กรองตามช่วงวันที่และสถานะ, จัดรูปแบบหัวตาราง, ไฮไลต์แถวเกินกำหนด, วันที่แสดงแบบไทย
+- หน้ารายงานเลือกช่วงวันที่และสถานะ แล้วดาวน์โหลด `.xlsx` ได้ทันที (ExcelJS)
+- จัดรูปแบบหัวตาราง, ไฮไลต์แถวเกินกำหนด, วันที่แสดงแบบไทย
 - มีบรรทัดสรุปจำนวนรายการและเวลาที่สร้างรายงาน
 
 ### 🏷️ พิมพ์ label QR/Barcode
 
 - สร้าง PNG ของ Code128 หรือ QR จาก HN ผ่าน bwip-js สำหรับติดแฟ้มที่ยังไม่มีบาร์โค้ด
+- หน้าจอมีตัวอย่างก่อนพิมพ์ ดาวน์โหลด PNG และสั่งพิมพ์ได้
 - รองรับการขอเป็นชุด (batch) สำหรับพิมพ์ทีละหลายแฟ้ม
 
 ### 🌐 UI
@@ -158,7 +203,8 @@ bun run dev
 | `dr-wichai` | BORROWER | นายแพทย์วิชัย แพทย์ (ICU) |
 | `head-somchai` | DEPARTMENT_HEAD | นายสมชาย หัวหน้าศัลยกรรม |
 
-ข้อมูลตัวอย่างมี 3 หน่วยงาน, 12 แฟ้ม และรายการยืม 3 แบบ (เกินกำหนด / ปกติ / คืนแล้ว)
+ข้อมูลตัวอย่างมี 3 หน่วยงาน, 12 แฟ้ม, รายการยืม 4 แบบ (เกินกำหนด / ปกติ / คืนแล้ว / รออนุมัติ)
+และเรื่องแฟ้มชำรุดที่ยังไม่ปิด 1 รายการ — ครอบทุกสถานะที่ UI รองรับ
 
 > ⚠️ บัญชีเหล่านี้มีไว้สำหรับ dev เท่านั้น — อย่ารัน `db:seed` บนฐานข้อมูลจริง เพราะ seed จะ **ลบข้อมูลเดิมทั้งหมด** ก่อนใส่ข้อมูลใหม่
 
@@ -190,7 +236,15 @@ docker compose up -d --build
 | `DATABASE_URL` | backend | — | connection string ของ Prisma |
 | `JWT_SECRET` | backend | — | **บังคับ**, อย่างน้อย 32 ตัวอักษร |
 | `PORT` | backend | `3000` | |
-| `LINE_NOTIFY_TOKEN` | backend | ว่าง | ถ้าไม่ตั้ง ระบบจะข้ามการแจ้งเตือน |
+| `SMTP_HOST` | backend | ว่าง | ไม่ตั้ง = ไม่ส่งอีเมลแจ้งเตือน |
+| `SMTP_PORT` | backend | `587` | |
+| `SMTP_SECURE` | backend | `false` | ตั้ง `true` เมื่อใช้ TLS ตรง (พอร์ต 465) |
+| `SMTP_USER` / `SMTP_PASS` | backend | ว่าง | เว้นว่างได้ถ้า relay ภายในไม่ต้อง auth |
+| `SMTP_FROM` | backend | `IpdCharts <no-reply@ipdcharts.local>` | ผู้ส่งที่แสดงในอีเมล |
+| `LINE_CHANNEL_ACCESS_TOKEN` | backend | ว่าง | เปิดใช้ LINE Messaging API (ไม่บังคับ) |
+| `CORS_ORIGIN` | backend | ว่าง | คั่นด้วย comma — ไม่ตั้งบน production = same-origin เท่านั้น |
+| `AUTH_RATE_LIMIT_MAX` | backend | `10` | จำนวนครั้งล็อกอินต่อ IP, `0` = ปิด |
+| `AUTH_RATE_LIMIT_WINDOW` | backend | `1 minute` | ช่วงเวลาที่นับ |
 | `IPDCHARTS_TEST_DATABASE_URL` | test | `...localhost:5433/ipdcharts_test` | |
 
 ---
@@ -205,12 +259,21 @@ docker compose up -d --build
 | `POST` | `/auth/login` | สาธารณะ | ล็อกอิน คืน token + ข้อมูลผู้ใช้ |
 | `GET` | `/auth/me` | ทุก role | ข้อมูลผู้ใช้ปัจจุบัน (ใช้ตรวจ token) |
 | `GET` | `/stats` | ทุก role | ตัวเลขสรุปสำหรับ Dashboard |
-| `GET` | `/users` | ทุก role | รายชื่อผู้ใช้งาน |
 | `GET` | `/medical-records` | ทุก role | ค้นหาแฟ้ม (`?search=`, `?status=`) |
-| `GET` | `/medical-records/:id` | ทุก role | รายละเอียด + ประวัติการยืม-คืน |
-| `GET` | `/borrows` | ทุก role | รายการยืม (`?status=ACTIVE\|RETURNED\|OVERDUE`, `?search=`) |
-| `POST` | `/borrows` | ADMIN | บันทึกการยืม |
-| `POST` | `/borrows/:id/return` | ADMIN | บันทึกการคืน |
+| `GET` | `/medical-records/:id` | ทุก role | รายละเอียด + ประวัติ + เหตุการณ์ชำรุด/สูญหาย |
+| `GET` | `/borrows` | ทุก role | รายการยืม (`?status=PENDING_APPROVAL\|ACTIVE\|RETURNED\|REJECTED\|OVERDUE`, `?search=`) |
+| `POST` | `/borrows` | ADMIN | บันทึกการยืม (`requiresApproval: true` = ส่งเป็นคำขอ) |
+| `POST` | `/borrows/:id/approve` | ADMIN, DEPARTMENT_HEAD | อนุมัติคำขอยืม |
+| `POST` | `/borrows/:id/reject` | ADMIN, DEPARTMENT_HEAD | ไม่อนุมัติ (ต้องระบุ `reason`) |
+| `POST` | `/borrows/:id/return` | ADMIN | บันทึกการคืน (`condition: "DAMAGED"` = เปิดเรื่องด้วย) |
+| `GET` | `/incidents` | ทุก role | รายการแฟ้มชำรุด/สูญหาย (`?status=`, `?type=`) |
+| `POST` | `/incidents` | ADMIN | รายงานแฟ้มชำรุด/สูญหาย |
+| `POST` | `/incidents/:id/resolve` | ADMIN | ปิดเรื่อง (`restoreRecord` = คืนแฟ้มสู่สถานะพร้อมยืม) |
+| `GET` | `/users` | ทุก role | รายชื่อผู้ใช้งาน (`?includeInactive=true`) |
+| `POST` | `/users` | ADMIN | เพิ่มผู้ใช้งาน |
+| `PATCH` | `/users/:id` | ADMIN | แก้ไข / รีเซ็ตรหัสผ่าน / เปิด-ปิดใช้งาน |
+| `DELETE` | `/users/:id` | ADMIN | ปิดใช้งานบัญชี (ไม่ลบข้อมูลจริง) |
+| `GET` | `/departments` | ทุก role | รายชื่อหน่วยงาน + จำนวนผู้ใช้ |
 | `GET` | `/labels` | ADMIN | PNG barcode/QR (`?hn=&type=barcode\|qrcode`) |
 | `POST` | `/labels/batch` | ADMIN | ขอ label หลายแฟ้ม |
 | `GET` | `/reports/borrows` | ADMIN | ดาวน์โหลดรายงาน `.xlsx` |
@@ -223,9 +286,12 @@ docker compose up -d --build
 { "error": { "code": "RECORD_NOT_AVAILABLE", "message": "แฟ้มนี้ถูกยืมอยู่แล้ว ไม่สามารถยืมซ้ำได้" } }
 ```
 
-โค้ดที่ใช้: `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `INVALID_CREDENTIALS`, `RECORD_NOT_FOUND`,
-`RECORD_NOT_AVAILABLE`, `BORROW_NOT_FOUND`, `ALREADY_RETURNED`, `WRONG_RETURNER`, `BORROWER_NOT_FOUND`,
-`BORROWER_NO_DEPARTMENT`, `INVALID_DUE_DATE`, `NOT_FOUND`, `INTERNAL_ERROR`
+โค้ดที่ใช้: `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `TOO_MANY_REQUESTS`, `INVALID_CREDENTIALS`,
+`RECORD_NOT_FOUND`, `RECORD_NOT_AVAILABLE`, `RECORD_UNUSABLE`, `BORROW_NOT_FOUND`, `ALREADY_RETURNED`,
+`WRONG_RETURNER`, `BORROWER_NOT_FOUND`, `BORROWER_NO_DEPARTMENT`, `INVALID_DUE_DATE`,
+`NOT_PENDING_APPROVAL`, `NOT_APPROVED`, `APPROVER_WRONG_DEPARTMENT`, `INCIDENT_NOT_FOUND`,
+`INCIDENT_ALREADY_RESOLVED`, `USERNAME_TAKEN`, `DEPARTMENT_NOT_FOUND`, `CANNOT_DELETE_SELF`,
+`USER_HAS_ACTIVE_BORROWS`, `USER_NOT_FOUND`, `NOT_FOUND`, `INTERNAL_ERROR`
 
 ---
 
@@ -241,6 +307,9 @@ docker compose up -d --build
 | รอบสรุปประจำวัน | 08:00 น. | `server.ts` |
 | Time zone แสดงผล | `Asia/Bangkok` (เก็บใน DB เป็น UTC) | |
 | รูปแบบ HN | ตัวเลข 8–10 หลัก | `borrowBodySchema` |
+| ความยาวรหัสผ่านขั้นต่ำ | 8 ตัวอักษร | `createBodySchema` |
+| ลิมิตล็อกอินต่อ IP | 10 ครั้ง/นาที | `AUTH_RATE_LIMIT_MAX` |
+| แฟ้มที่ยืมได้ | เฉพาะสถานะ `AVAILABLE` และไม่มีคำขอค้างอยู่ | `isRecordBorrowable` |
 
 ---
 
@@ -252,8 +321,9 @@ bun run test        # integration tests (ต้องมี PostgreSQL รัน
 ```
 
 Integration test ยิงผ่าน `app.inject()` ไปยัง Fastify จริงและใช้ PostgreSQL จริง (ฐาน `ipdcharts_test`)
-ครอบคลุม happy path, กรณี error ทุกแบบ, การคำนวณ overdue, การนับสถิติ
-และ **auth/RBAC จริง** — ทุกเทสต์ออก JWT ผ่านเส้นทางเดียวกับ production ไม่มีการ bypass
+ครอบคลุม happy path, กรณี error ทุกแบบ, workflow อนุมัติ, เหตุการณ์ชำรุด/สูญหาย, จัดการผู้ใช้,
+overdue scanner, audit log การอ่าน และ rate limit
+ทุกเทสต์ผ่าน **auth/RBAC จริง** — ออก JWT ผ่านเส้นทางเดียวกับ production ไม่มีการ bypass
 
 ```bash
 # E2E (ต้องเปิด backend + frontend ไว้ก่อน)
@@ -271,14 +341,14 @@ IpdCharts/
 ├── docker-compose.yml          # db + backend + frontend
 ├── backend/
 │   ├── prisma/
-│   │   ├── schema.prisma       # User, Department, MedicalRecord, Borrow, AuditLog
+│   │   ├── schema.prisma       # User, Department, MedicalRecord, Borrow, Incident, AuditLog
 │   │   ├── migrations/
 │   │   └── seed.ts
 │   ├── src/
-│   │   ├── app.ts              # ประกอบ Fastify + error handler กลาง
+│   │   ├── app.ts              # ประกอบ Fastify + error handler กลาง + CORS/rate limit
 │   │   ├── server.ts           # ตรวจ config, listen, ตั้ง cron
 │   │   ├── lib/                # auth, domain (กติกา overdue), errors, notifications, overdue-scanner
-│   │   ├── routes/             # health, auth, records, borrows, users, stats, labels, reports
+│   │   ├── routes/             # health, auth, records, borrows, incidents, users, stats, labels, reports
 │   │   └── test/               # helper สำหรับ integration test
 │   └── e2e/                    # Playwright
 └── frontend/
@@ -286,21 +356,20 @@ IpdCharts/
     └── src/
         ├── lib/                # api client, auth context, format, cn
         ├── components/         # ui primitives, QrScanner
-        └── pages/              # Login, Dashboard, Borrow, Return, Records, RecordDetail, Admin
+        └── pages/              # Login, Dashboard, Borrow, Return, Approvals, Records,
+                                # RecordDetail, Incidents, Reports, Admin
 ```
 
 ---
 
 ## สิ่งที่ยังไม่ได้ทำ
 
-รายการที่อยู่ใน PRD แต่ยังไม่ได้พัฒนา หรือพัฒนาแล้วแต่ยังใช้งานจริงไม่ได้
-
-- **ช่องทางแจ้งเตือน** — โค้ดเรียก LINE Notify ซึ่งปิดบริการถาวรแล้ว ต้องย้ายไป LINE Messaging API หรือ SMTP
-  และต้องเพิ่มฟิลด์ช่องทางติดต่อรายบุคคลใน `User` ก่อน (ตอนนี้ส่งได้เฉพาะ token กลางตัวเดียว ไม่ใช่ถึงผู้ยืมโดยตรง)
-- **Workflow อนุมัติกรณีพิเศษ** (FR-03) — ยังไม่มี สถานะการยืมมีแค่ `ACTIVE` / `RETURNED`
-- **บันทึกแฟ้มชำรุด/สูญหาย** (FR-05) — ยังไม่มี สถานะแฟ้มมีแค่ `AVAILABLE` / `BORROWED`
-- **ระยะเวลายืมตามประเภทคำขอ** (FR-02) — ตอนนี้ผู้บันทึกกำหนด `dueDate` เอง ยังไม่มีนโยบายปกติ/ด่วน
-- **จัดการผู้ใช้งาน** (FR-11) — หน้า Admin ดูรายชื่อได้อย่างเดียว ยังไม่มีเพิ่ม/แก้ไข/ลบ/รีเซ็ตรหัสผ่าน
-- **UI ของรายงานและ label** — API พร้อมแล้ว แต่ยังไม่มีหน้าจอเรียกใช้
-- **Hardening** — ยังไม่มี rate limit ที่ `/auth/login`, CORS ยังเปิดรับทุก origin, audit log ยังไม่บันทึกการ *อ่าน* ข้อมูลผู้ป่วย (NFR ด้าน PDPA)
-- **Backup อัตโนมัติ** ของฐานข้อมูล
+- **ต่อ SMTP จริง** — โค้ดพร้อมแล้ว แต่ต้องตั้ง `SMTP_HOST` ของโรงพยาบาลและกรอกอีเมลให้ผู้ใช้แต่ละคน
+  จึงจะมีการแจ้งเตือนออกไปจริง ระหว่างนี้ระบบจะขึ้นคำเตือนตอน start และนับรายการที่ส่งไม่ได้ให้ตามด้วยมือ
+- **LINE Messaging API** — เขียน adapter ไว้แล้วแต่ยังไม่ได้ทดสอบกับ Official Account จริง
+  และยังไม่มี webhook สำหรับเก็บ `lineUserId` ของผู้ใช้ (ต้องกรอกมือไปก่อน)
+- **ระยะเวลายืมตามประเภทคำขอ** (FR-02) — ตอนนี้ผู้บันทึกกำหนด `dueDate` เอง
+  ยังไม่มีนโยบายสำเร็จรูป "ปกติ 3 วัน / ด่วน 1 วันทำการ" ให้เลือก (รอยืนยันนโยบายจริงตาม PRD ข้อ 12.3)
+- **จัดการหน่วยงาน** — ดูรายชื่อได้ แต่เพิ่ม/แก้ไข/ลบหน่วยงานต้องทำผ่าน `prisma studio`
+- **Backup อัตโนมัติ** ของฐานข้อมูล (NFR ด้าน Availability)
+- **E2E test** ยังครอบเฉพาะ flow เดิม ยังไม่ครอบหน้าอนุมัติ / เหตุการณ์ / รายงาน

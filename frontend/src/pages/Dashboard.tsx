@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw, Stamp } from "lucide-react";
 import { api, type BorrowListItem, type Stats } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { Card, EmptyState, ErrorBanner, PageHeader, StatusBadge } from "../components/ui";
@@ -54,16 +54,44 @@ export default function Dashboard() {
       {error ? <ErrorBanner message={error} onRetry={() => void load()} /> : null}
 
       {stats ? (
-        <div className="mb-8 grid grid-cols-2 gap-3 md:grid-cols-5">
-          {statCards.map((card) => (
-            <Card key={card.key} className="px-4 py-4">
-              <div className="text-xs font-medium text-slate-500">{card.label}</div>
-              <div className={`mt-1 text-2xl font-semibold tabular-nums ${card.tone}`}>
-                {stats[card.key]}
-              </div>
-            </Card>
-          ))}
-        </div>
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+            {statCards.map((card) => (
+              <Card key={card.key} className="px-4 py-4">
+                <div className="text-xs font-medium text-slate-500">{card.label}</div>
+                <div className={`mt-1 text-2xl font-semibold tabular-nums ${card.tone}`}>
+                  {stats[card.key]}
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* งานค้างที่ต้องมีคนลงมือ — แสดงเฉพาะเมื่อมีจริง จะได้ไม่กลายเป็น noise */}
+          {stats.pendingApproval > 0 || stats.openIncidents > 0 ? (
+            <div className="mb-8 flex flex-wrap gap-3">
+              {stats.pendingApproval > 0 ? (
+                <Link
+                  to="/approvals"
+                  className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100"
+                >
+                  <Stamp className="size-4" />
+                  มีคำขอยืมรออนุมัติ {stats.pendingApproval} รายการ
+                </Link>
+              ) : null}
+              {stats.openIncidents > 0 ? (
+                <Link
+                  to="/incidents"
+                  className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 hover:bg-red-100"
+                >
+                  <AlertTriangle className="size-4" />
+                  เรื่องแฟ้มชำรุด/สูญหายที่ยังไม่ปิด {stats.openIncidents} รายการ
+                </Link>
+              ) : null}
+            </div>
+          ) : (
+            <div className="mb-8" />
+          )}
+        </>
       ) : (
         !error && <div className="mb-8 text-sm text-slate-500">กำลังโหลดข้อมูล...</div>
       )}

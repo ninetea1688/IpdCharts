@@ -25,9 +25,20 @@ function serializeUser(u: {
   };
 }
 
+/**
+ * จำกัดจำนวนครั้งการล็อกอินต่อ IP — กัน brute-force รหัสผ่าน
+ * ปิดได้ด้วย AUTH_RATE_LIMIT_MAX=0
+ * อ่านค่าตอน buildApp() ไม่ใช่ตอน import เพื่อให้ test สร้าง app ที่มีลิมิตต่างกันได้
+ */
+function loginRateLimitConfig(): { max: number; timeWindow: string } | false {
+  const max = Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10);
+  if (!Number.isFinite(max) || max <= 0) return false;
+  return { max, timeWindow: process.env.AUTH_RATE_LIMIT_WINDOW ?? "1 minute" };
+}
+
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // เข้าสู่ระบบ — ได้ token + ข้อมูลผู้ใช้
-  app.post("/auth/login", async (request, reply) => {
+  app.post("/auth/login", { config: { rateLimit: loginRateLimitConfig() } }, async (request, reply) => {
     const body = loginBodySchema.safeParse(request.body);
     if (!body.success) {
       return reply.status(400).send({
@@ -37,7 +48,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const { username, password } = body.data;
 
     const user = await prisma.user.findUnique({ where: { username }, include: { department: true } });
-    const passwordOk = user && user.passwordHash !== "" ? await verifyPassword(password, user.passwordHash) : false;
+    const passwordOk =
+      user && user.active && user.passwordHash !== "" ? await verifyPassword(password, user.passwordHash) : false;
     if (!user || !passwordOk) {
       // ข้อความเดียวกันทั้งกรณีไม่พบผู้ใช้/รหัสผิด — ป้องกัน user enumeration
       throw Errors.invalidCredentials();

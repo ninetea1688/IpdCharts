@@ -1,11 +1,14 @@
 import { useCallback, useEffect } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   ClipboardList,
+  FileSpreadsheet,
   FolderOpen,
   LayoutDashboard,
   LogOut,
   ScanLine,
+  Stamp,
   Undo2,
   Users,
 } from "lucide-react";
@@ -19,13 +22,21 @@ import RecordsPage from "./pages/RecordsPage";
 import RecordDetailPage from "./pages/RecordDetailPage";
 import LoginPage from "./pages/LoginPage";
 import AdminPage from "./pages/AdminPage";
+import ApprovalsPage from "./pages/ApprovalsPage";
+import IncidentsPage from "./pages/IncidentsPage";
+import ReportsPage from "./pages/ReportsPage";
 import { Button } from "./components/ui";
+
+const ALL_ROLES: Role[] = ["ADMIN", "BORROWER", "DEPARTMENT_HEAD"];
 
 const navItems = [
   { to: "/", label: "หน้าหลัก", icon: LayoutDashboard, end: true },
   { to: "/borrow", label: "ยืมแฟ้ม", icon: ScanLine, roles: ["ADMIN"] as Role[] },
   { to: "/return", label: "คืนแฟ้ม", icon: Undo2, roles: ["ADMIN"] as Role[] },
-  { to: "/records", label: "รายการแฟ้ม", icon: FolderOpen, roles: ["ADMIN", "BORROWER", "DEPARTMENT_HEAD"] as Role[] },
+  { to: "/approvals", label: "อนุมัติคำขอ", icon: Stamp, roles: ["ADMIN", "DEPARTMENT_HEAD"] as Role[] },
+  { to: "/records", label: "รายการแฟ้ม", icon: FolderOpen, roles: ALL_ROLES },
+  { to: "/incidents", label: "ชำรุด/สูญหาย", icon: AlertTriangle, roles: ALL_ROLES },
+  { to: "/reports", label: "รายงาน", icon: FileSpreadsheet, roles: ["ADMIN"] as Role[] },
   { to: "/admin", label: "จัดการระบบ", icon: Users, roles: ["ADMIN"] as Role[] },
 ];
 
@@ -122,8 +133,11 @@ function AppLayout() {
             <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/borrow" element={<ProtectedRoute requiredRoles={["ADMIN"]}><BorrowPage /></ProtectedRoute>} />
             <Route path="/return" element={<ProtectedRoute requiredRoles={["ADMIN"]}><ReturnPage /></ProtectedRoute>} />
-            <Route path="/records" element={<ProtectedRoute requiredRoles={["ADMIN", "BORROWER", "DEPARTMENT_HEAD"]}><RecordsPage /></ProtectedRoute>} />
+            <Route path="/approvals" element={<ProtectedRoute requiredRoles={["ADMIN", "DEPARTMENT_HEAD"]}><ApprovalsPage /></ProtectedRoute>} />
+            <Route path="/records" element={<ProtectedRoute requiredRoles={ALL_ROLES}><RecordsPage /></ProtectedRoute>} />
             <Route path="/records/:id" element={<ProtectedRoute><RecordDetailPage /></ProtectedRoute>} />
+            <Route path="/incidents" element={<ProtectedRoute requiredRoles={ALL_ROLES}><IncidentsPage /></ProtectedRoute>} />
+            <Route path="/reports" element={<ProtectedRoute requiredRoles={["ADMIN"]}><ReportsPage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute requiredRoles={["ADMIN"]}><AdminPage /></ProtectedRoute>} />
             <Route path="*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           </Routes>

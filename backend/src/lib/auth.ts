@@ -87,7 +87,8 @@ export async function authenticate(request: FastifyRequest): Promise<void> {
       where: { id: Number(payload.sub) },
       include: { department: true },
     });
-    if (!user) {
+    // ปิดใช้งานบัญชีแล้ว token เดิมต้องใช้ไม่ได้ทันที
+    if (!user || !user.active) {
       throw new AppError(401, "UNAUTHORIZED", "กรุณาเข้าสู่ระบบก่อนใช้งาน");
     }
     request.user = {
